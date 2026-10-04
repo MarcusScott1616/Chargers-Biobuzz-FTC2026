@@ -1,5 +1,6 @@
 ## ITS A ROOKIE SEASON
 The Chargers, located in Corner Canyon High School now have an official FTC Team!!!!
+(Team 38279)
 Current Schedule:
 First Competition:
 Second:
