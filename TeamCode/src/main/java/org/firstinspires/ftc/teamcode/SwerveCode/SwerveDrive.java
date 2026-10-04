@@ -1,5 +1,6 @@
 package org.firstinspires.ftc.teamcode.SwerveCode;
 
+
 import static java.lang.Math.cos;
 import static java.lang.Math.sin;
 
@@ -44,7 +45,12 @@ import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
  **/
 
 
-/**
+/*
+ *
+ * I altered:
+ * Biggest thing was Swerve Modules. Rather than calculating the power and degrees for
+ * one swerve module and copy/pasting it to all of them,
+ * I created individual programming for each module
  *
  */
 public class SwerveDrive {
@@ -60,15 +66,27 @@ public class SwerveDrive {
 
 
     private ServoImplEx redServo, blueServo, greenServo, yellowServo;
-    private final ServoImplEx[] servoList = new ServoImplEx[]{redServo, blueServo, greenServo, yellowServo};
+    public ServoImplEx[] servoList;
 
+    private DcMotor redMotor, blueMotor, greenMotor, yellowMotor;
+    private DcMotor[] motorList;
     private IMU.Parameters imuParams;
     private IMU imu;
-    private DcMotor redMotor, blueMotor, greenMotor, yellowMotor;
-    private final DcMotor[] motorList = new DcMotor[]{redMotor, blueMotor, greenMotor, yellowMotor};
 
     public int WheelbaseLength = 17;
     public int WheelbaseWidth = 17;
+
+    private double currentRedTheta = 0, currentBlueTheta = 0, currentGreenTheta =0, currentYellowTheta = 0;
+
+    public static class SwerveModuleState {
+        public double angle;
+        public double power;
+
+        public SwerveModuleState(double angle, double power) {
+            this.angle = angle;
+            this.power = power;
+        }
+    }
 
     public void init(HardwareMap hMap) {
         // sample code did not grab hardware map properly.... Replaced:
@@ -79,13 +97,18 @@ public class SwerveDrive {
 
         redServo = hMap.get(ServoImplEx.class, "redServo");
         blueServo = hMap.get(ServoImplEx.class, "blueServo");
-        yellowServo = hMap.get(ServoImplEx.class, "yellowServo");
         greenServo = hMap.get(ServoImplEx.class, "greenServo");
+        yellowServo = hMap.get(ServoImplEx.class, "yellowServo");
+
+        servoList = new ServoImplEx[]{redServo, blueServo, greenServo, yellowServo};
 
         redMotor = hMap.get(DcMotor.class, "redMotor");
         blueMotor = hMap.get(DcMotor.class, "blueMotor");
         yellowMotor = hMap.get(DcMotor.class, "yellowMotor");
         greenMotor = hMap.get(DcMotor.class, "greenMotor");
+
+        motorList = new DcMotor[]{redMotor, blueMotor, greenMotor, yellowMotor};
+
 
         imuParams = new IMU.Parameters(
             new RevHubOrientationOnRobot(
@@ -97,10 +120,7 @@ public class SwerveDrive {
         imu.initialize(imuParams);
         imu.resetYaw();
 
-        redServo = hMap.get(ServoImplEx.class, "redServo");
-        blueServo = hMap.get(ServoImplEx.class, "blueServo");
-        greenServo = hMap.get(ServoImplEx.class, "greenServo");
-        yellowServo = hMap.get(ServoImplEx.class, "yellowServo");
+
 
         for (ServoImplEx servo : servoList) {
             servo.setPwmEnable();
@@ -141,21 +161,21 @@ public class SwerveDrive {
     /**
      * Moves the Drivetrain with setPower()
      *
-     * @strafeX Power for Left-Right Locomotion
-     * @strafeY Power for Forward-Back Locomotion
-     * @rotate The extent to which the drivetrain rotates
+     * @param strafeX Power for Left-Right Locomotion
+     * @param strafeY Power for Forward-Back Locomotion
+     * @param rotate The extent to which the drivetrain rotates
      */
 
 	public void move(float strafeX, float strafeY, float rotate) {
 
         YawPitchRollAngles robotOrientation;
         robotOrientation = imu.getRobotYawPitchRollAngles();
-        
-        double yaw = robotOrientation.getYaw(org.firstinspires.ftc.robotcore.external.navigation.AngleUnit.RADIANS);
 
+        double yaw = robotOrientation.getYaw(org.firstinspires.ftc.robotcore.external.navigation.AngleUnit.RADIANS);
+        //These are the template Calculations, Improper
         //Calculations
         // Making every wheel rotate uniformly would turn at unequal angles, not pivoting around center point
-		//float theta1 = (float) Math.atan2(strafeX + rotate, strafeY + rotate) - yaw;
+        //float theta1 = (float) Math.atan2(strafeX + rotate, strafeY + rotate) - yaw;
 
         //float theta2 = (float) Math.atan2(strafeX - rotate, strafeY + rotate) - yaw;
         // Making every wheel rotate uniformly would turn at unequal angles, not pivoting around center point
@@ -177,75 +197,74 @@ public class SwerveDrive {
          * GRN--------YLW
          */
 
+        double fieldX = strafeX * cos(-yaw) - strafeY * sin(-yaw);
+        double fieldY = strafeX * sin(-yaw) + strafeY * cos(-yaw);
 
-        double fieldX= strafeX*cos(-yaw)-strafeY*sin(-yaw);
-        double fieldY = strafeX *sin(-yaw)+strafeY*cos(-yaw);
-
-        double  L = WheelbaseLength; // Length of Chassis
-        double  W = WheelbaseWidth; //Width of Chassis
-        double R = Math.hypot(L,W); // the diagonal of the chassis
+        double L = WheelbaseLength; // Length of Chassis
+        double W = WheelbaseWidth; //Width of Chassis
+        double R = Math.hypot(L, W); // the diagonal of the chassis
 
         // Component Vectors
-        float red = fieldX-rotate* ( L / R);
-        float blue = fieldX+rotate* ( L / R);
-        float green = fieldY+rotate* ( W / R);
-        float yellow = fieldY-rotate* ( W / R);
+        double red = fieldX - rotate * (L / R);
+        double blue = fieldX + rotate * (L / R);
+        double green = fieldY + rotate * (W / R);
+        double yellow = fieldY - rotate * (W / R);
 
         double redPower = Math.hypot(blue, yellow);
         double bluePower = Math.hypot(blue, green);
         double greenPower = Math.hypot(red, yellow);
         double yellowPower = Math.hypot(red, green);
 
-        double redTheta     = Math.atan2(blue, yellow);
-        double blueTheta    = Math.atan2(blue, green);
-        double greenTheta   = Math.atan2(red, yellow);
-        double yellowTheta  = Math.atan2(red, green);
+        double redTheta = Math.atan2(blue, yellow);
+        double blueTheta = Math.atan2(blue, green);
+        double greenTheta = Math.atan2(red, yellow);
+        double yellowTheta = Math.atan2(red, green);
 
         double maxPower = Math.max(1.0, Math.max(Math.max(redPower, bluePower), Math.max(greenPower, yellowPower)));
 
-        redPower    /=maxPower;
-        bluePower   /=maxPower;
-        greenPower  /=maxPower;
-        yellowPower /=maxPower;
+        redPower /= maxPower;
+        bluePower /= maxPower;
+        greenPower /= maxPower;
+        yellowPower /= maxPower;
 
-        redServo.setPosition(thetaToServo((float) redTheta));
-        blueServo.setPosition(thetaToServo((float) blueTheta));
-        greenServo.setPosition(thetaToServo((float) greenTheta));
-        yellowServo.setPosition(thetaToServo((float) yellowTheta));
+        SwerveModuleState redState      = optimize(redTheta, redPower, currentRedTheta);
+        SwerveModuleState blueState     = optimize(blueTheta, bluePower, currentBlueTheta);
+        SwerveModuleState greenState    = optimize(greenTheta, greenPower, currentGreenTheta);
+        SwerveModuleState yellowState   = optimize(yellowTheta, yellowPower, currentYellowTheta);
 
-        redMotor.setPower(redPower);
-        blueMotor.setPower(bluePower);
-        greenMotor.setPower(greenPower);
-        yellowMotor.setPower(yellowPower);
-        //Template code
-        //Servos
-        /* for (ServoImplEx servo : servoList) {
-         if (servo.equals(redServo) || servo.equals(yellowServo)) {
-         servo.setPosition(thetaToServo(theta1));
-         } else {
-         servo.setPosition(thetaToServo(theta2));
-         }
-         }
-         for (DcMotor motor : motorList) {
-         if (motor.equals(redMotor) || motor.equals(yellowMotor)) {
-         motor.setPower(power1);
-         } else {
-         motor.setPower(power2);
-         }
-         *
-         */
+        currentRedTheta      = redState.angle;
+        currentBlueTheta     = blueState.angle;
+        currentGreenTheta    = greenState.angle;
+        currentYellowTheta   = yellowState.angle;
+
+        redServo.setPosition(thetaToServo(redState.angle));
+        blueServo.setPosition(thetaToServo(blueState.angle));
+        greenServo.setPosition(thetaToServo(greenState.angle));
+        yellowServo.setPosition(thetaToServo(yellowState.angle));
+
+        redMotor.setPower(redState.power);
+        blueMotor.setPower(blueState.power);
+        greenMotor.setPower(greenState.power);
+        yellowMotor.setPower(yellowState.power);
+
     }
-}
+            public SwerveModuleState optimize(double targetAngle, double targetPower, double currentAngle) {
+                double delta = targetAngle - currentAngle;
 
-/*private float thetaToServo(float theta){
-        float thetaInDegrees = (float) ((theta*180) / (Math.PI));
-        //position of 1 means PWM of 2495 and 360-ish degree rotation
-        //position of 0 means PWM of 505 and 0-ish degree rotation
-        float degreesToServo = (thetaInDegrees + 180) / 360; // map range formula (simplified)
-        return degreesToServo;
-   }
- *
- */
+                while (delta > Math.PI) delta -= 2 * Math.PI;
+                while (delta < -Math.PI) delta += 2 * Math.PI;
 
+                if (Math.abs(delta) > Math.PI / 2.0) {
+                    targetPower *= -1.0;
+                    targetAngle += (delta > 0) ? -Math.PI : Math.PI;
+                }
+
+                return new SwerveModuleState(targetAngle, targetPower);
+            }
+
+            private double thetaToServo(double theta){
+                double thetaInDegrees = Math.toDegrees(theta);
+                return (thetaInDegrees + 180.0) /360.0;
+            }
 
 }
