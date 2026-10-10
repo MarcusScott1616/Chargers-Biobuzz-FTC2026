@@ -7,9 +7,14 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.ElapsedTime;
 import com.qualcomm.robotcore.util.Range;
 
-import org.openftc.apriltag.AprilTagDetection;
-// note to self there are still errors in here
+// Use the FTC SDK's AprilTag class (it has ftcPose; the org.openftc.apriltag one does not).
+// In SDK 12, a single tag's id is on AprilTagSingleDetection, not the base AprilTagDetection.
+import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
+
 public class TurretTurningMechanism {
+    // AprilTag the turret aims at.
+    private static final int TARGET_TAG_ID = 20;
+
     private DcMotorEx turret;
     // Motor that turns the turret.
     //IDK what motor we are using, double check with Design team.
@@ -58,16 +63,18 @@ public class TurretTurningMechanism {
 
     //adjust the "Apriltagdetection" here. IDK, tutorial said something about limelight detection
     // "if tag is null/true", "
-    public void update(AprilTagDetection curID){
+    public void update(AprilTagSingleDetection curID){
         double deltaTime = timer.seconds();
         timer.reset();
 
         //adjust ID number here.
         // adjust for limelight Identification here.
 
-        if (curID == null && curID.id == 20){
+        // No tag, the wrong tag, or no pose info: stop the turret and wait.
+        if (curID == null || curID.id != TARGET_TAG_ID || curID.ftcPose == null){
             turret.setPower(0);
             lastError = 0;
+            return;
         }
 
         //------------- Starting PD controlling -----------------
@@ -80,7 +87,7 @@ public class TurretTurningMechanism {
         double dTerm = 0;
 
         if (deltaTime > 0){
-            dTerm=((error- lastError) /deltaTime) +kD;
+            dTerm=((error- lastError) /deltaTime) *kD;
 
         }
 
