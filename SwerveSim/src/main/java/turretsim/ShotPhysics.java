@@ -30,7 +30,7 @@ import java.util.Random;
  *
  * Staying in: after the ball goes through the opening it bounces around inside the cell
  * (back wall, floor, ceiling). A fast, flat shot can hit the back wall and bounce right
- * back out. "Bounciness" = how much speed the ball keeps on each bounce (0 = dead, 1 = superball).
+ * back out. "Bounciness" = how much speed the ball keeps on each bounce (0 = dead, 1 = superball). The game balls are rigid plastic like pickleballs, about 0.64.
  *
  * Odds: a real robot never shoots exactly the same twice - the flywheel speed sags, the
  * angle wiggles, the driver stops in a slightly different spot. odds() fires practice
@@ -85,9 +85,9 @@ public class ShotPhysics {
         public double openingBottomIn = 53.5;   // bottom edge of the opening above the tiles
         public double openingTopIn = 65.6;      // top edge of the opening above the tiles
         public double openingTiltDeg = 30;      // tilt of the opening from vertical; + = top edge leans away from the shooter
-        public double cellDepthIn = 12;         // how deep the cell box is behind the opening
+        public double cellDepthIn = 12.04;        // how deep the cell box is behind the opening
         public double hiveBottomIn = 30.6;      // bottom of the HIVE above the tiles
-        public double bounciness = 0.35;        // GUESS - drop a ball onto the HIVE and see how high it bounces. Above ~0.45 many shots bounce out!
+        public double bounciness = 0.64;        // rigid plastic, like a pickleball (dropped from 78 in, bounces ~32 in). Measure on the real HIVE!
 
         // Wobble: how far each shot is typically off from the setting (about 2 out of 3 shots are within this)
         public double rpmWobble = 75;
@@ -121,6 +121,7 @@ public class ShotPhysics {
     private static final double MAX_LIFT_COEFFICIENT = 0.35;
     private static final double IN = 0.0254;             // meters per inch
     private static final double DT = 0.001;
+    private static final double ROLL_KEEP = 0.6;           // hollow ball: keeps 3/5 of its sliding speed on a bounce
 
     /** Made-up grip curve: how much of the ideal speed the ball actually gets (0..1). */
     public static double grip(double compressionPct) {
@@ -270,9 +271,12 @@ public class ShotPhysics {
             double along = (x - bx) * ux + (z - bz) * uz;
             double vIn = vx * nx + vz * nz;
             double vUp = vx * ux + vz * uz;
-            if (depth > backWall && vIn > 0) { vIn = -e * vIn; spinRate *= e; }      // back wall
-            if (along < ballRadius && vUp < 0) vUp = -e * vUp;                       // floor
-            if (along > openingLength - ballRadius && vUp > 0) vUp = -e * vUp;       // ceiling
+            // Each bounce: the speed INTO the wall flips and keeps "bounciness" of itself, and the
+            // speed ALONG the wall drops to 3/5 - friction grabs the ball and turns that speed into
+            // spin (that's what happens to a hollow ball like a pickleball when it starts rolling).
+            if (depth > backWall && vIn > 0) { vIn = -e * vIn; vUp *= ROLL_KEEP; spinRate *= e; }   // back wall
+            if (along < ballRadius && vUp < 0) { vUp = -e * vUp; vIn *= ROLL_KEEP; }                // floor
+            if (along > openingLength - ballRadius && vUp > 0) { vUp = -e * vUp; vIn *= ROLL_KEEP; } // ceiling
             vx = vIn * nx + vUp * ux;
             vz = vIn * nz + vUp * uz;
             r.path.add(new double[]{t, x / IN, z / IN, spinAngle});
