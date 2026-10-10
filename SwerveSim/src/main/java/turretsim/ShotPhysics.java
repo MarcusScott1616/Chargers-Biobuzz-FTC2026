@@ -3,6 +3,7 @@ package turretsim;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 /*
  * The physics of one shot from a single-flywheel + hood shooter, seen from the side.
@@ -26,6 +27,14 @@ import java.util.List;
  *
  * Air: drag slows the ball down, and spin bends its path (Magnus effect - the same thing
  * that makes a curveball curve). Both use typical numbers for a foam ball; they are estimates.
+ *
+ * Staying in: after the ball goes through the opening it bounces around inside the cell
+ * (back wall, floor, ceiling). A fast, flat shot can hit the back wall and bounce right
+ * back out. "Bounciness" = how much speed the ball keeps on each bounce (0 = dead, 1 = superball).
+ *
+ * Odds: a real robot never shoots exactly the same twice - the flywheel speed sags, the
+ * angle wiggles, the driver stops in a slightly different spot. odds() fires practice
+ * shots with that "wobble" mixed in and counts how many score AND stay in.
  */
 public class ShotPhysics {
 
@@ -46,9 +55,9 @@ public class ShotPhysics {
     }
 
     public enum Spin {
-        BACKSPIN("Backspin (wheel under, hood on top)", 1),
-        TOPSPIN("Topspin (wheel over, hood underneath)", -1),
-        NONE("No spin (ignore spin)", 0);
+        BACKSPIN("Backspin", 1),   // wheel under the ball, hood on top
+        TOPSPIN("Topspin", -1),    // wheel over the ball, hood underneath
+        NONE("No spin", 0);
 
         public final String label;
         final int sign;
@@ -78,9 +87,15 @@ public class ShotPhysics {
         public double openingTiltDeg = 30;      // tilt of the opening from vertical; + = top edge leans away from the shooter
         public double cellDepthIn = 12;         // how deep the cell box is behind the opening
         public double hiveBottomIn = 30.6;      // bottom of the HIVE above the tiles
+        public double bounciness = 0.35;        // GUESS - drop a ball onto the HIVE and see how high it bounces. Above ~0.45 many shots bounce out!
+
+        // Wobble: how far each shot is typically off from the setting (about 2 out of 3 shots are within this)
+        public double rpmWobble = 75;
+        public double angleWobbleDeg = 1;
+        public double distanceWobbleIn = 3;
     }
 
-    public enum Outcome { SCORED, RIM, HIT_HIVE, SHORT, LONG, NO_SHOT }
+    public enum Outcome { SCORED, BOUNCED_OUT, RIM, HIT_HIVE, SHORT, LONG, NO_SHOT }
 
     public static class Result {
         public final List<double[]> path = new ArrayList<>(); // {time s, x in, z in, ball spin angle rad}
@@ -89,6 +104,14 @@ public class ShotPhysics {
         public double surfaceSpeedInPerSec, exitSpeedInPerSec, ballSpinRpm, grip;
         public double apexIn, entryAngleDeg, flightTime;
         public boolean risingAtTarget;
+        public double hitX, hitZ;          // where the ball reached the HIVE (or the floor), inches
+    }
+
+    /** The result of many practice shots with wobble. */
+    public static class Odds {
+        public int shots, stayed, bouncedOut, rim, missed;
+        public final List<double[]> hits = new ArrayList<>(); // {x in, z in, outcome number} for each practice shot
+        public double chance() { return shots == 0 ? 0 : 100.0 * stayed / shots; }
     }
 
     // Physics constants (SI units: meters, kg, seconds)
@@ -172,14 +195,20 @@ public class ShotPhysics {
             // Did the ball's center cross the plane of the opening this step?
             double depth = (x - bx) * nx + (z - bz) * nz;
             if (prevDepth < 0 && depth >= 0) {
+                r.hitX = x / IN; r.hitZ = z / IN;
                 double along = (x - bx) * ux + (z - bz) * uz;   // where along the opening (0 = bottom edge)
                 r.flightTime = t;
                 r.risingAtTarget = vz > 0;
                 r.entryAngleDeg = Math.toDegrees(Math.atan2(-vz, vx));
                 if (along >= ballRadius && along <= openingLength - ballRadius) {
-                    r.outcome = Outcome.SCORED;
-                    r.message = "SCORED!";
-                    flyIntoCell(r, s, x, z, vx, vz, spinAngle, spinRadPerSec, t, nx, nz, bx, bz);
+                    if (bounceInCell(r, s, x, z, vx, vz, spinAngle, spinRadPerSec, t,
+                                     bx, bz, ux, uz, nx, nz, openingLength, ballRadius)) {
+                        r.outcome = Outcome.SCORED;
+                        r.message = "SCORED - and it stayed in!";
+                    } else {
+                        r.outcome = Outcome.BOUNCED_OUT;
+                        r.message = "Went in, but BOUNCED OUT - too fast. Try a slower, loopier shot.";
+                    }
                     return r;
                 }
                 if (along > -ballRadius && along < openingLength + ballRadius) {
@@ -199,6 +228,7 @@ public class ShotPhysics {
 
             if (z <= ballRadius) {
                 r.flightTime = t;
+                r.hitX = x / IN; r.hitZ = z / IN;
                 if (wentUnder) {
                     r.outcome = Outcome.SHORT;
                     r.message = "Went UNDER the HIVE - way too low.";
@@ -213,19 +243,73 @@ public class ShotPhysics {
         return r;
     }
 
-    /** After a score, keep the ball moving a little so you can see it drop into the cell. */
-    private static void flyIntoCell(Result r, Settings s, double x, double z, double vx, double vz, double spinAngle,
-                                    double spinRate, double t, double nx, double nz, double bx, double bz) {
-        double maxDepth = (s.cellDepthIn - s.ball.diameterIn / 2) * IN;
-        for (int i = 0; i < 400; i++) {
+    /**
+     * The ball just went through the opening. Bounce it around inside the cell to see if it STAYS.
+     * The cell is a box behind the opening: a back wall, a floor (starting at the opening's bottom edge)
+     * and a ceiling (starting at its top edge). On each bounce the ball keeps only "bounciness" of its
+     * speed into that wall. If its center comes back out through the opening, it bounced out.
+     * (Spin and air are ignored inside the cell - the ball is only in there for a moment.)
+     * Returns true if the ball stayed in.
+     */
+    private static boolean bounceInCell(Result r, Settings s, double x, double z, double vx, double vz,
+                                        double spinAngle, double spinRate, double t,
+                                        double bx, double bz, double ux, double uz, double nx, double nz,
+                                        double openingLength, double ballRadius) {
+        double backWall = s.cellDepthIn * IN - ballRadius;     // deepest the ball's center can go
+        double e = Math.max(0, Math.min(1, s.bounciness));
+        int stillSteps = 0;
+        for (int i = 0; i < 3000; i++) {                       // watch for up to 3 seconds
             vz -= G * DT;
             x += vx * DT;
             z += vz * DT;
             t += DT;
             spinAngle += spinRate * DT;
-            if ((x - bx) * nx + (z - bz) * nz > maxDepth) break;
+
+            // Split position and velocity into "into the cell" (n) and "along the opening" (u) parts.
+            double depth = (x - bx) * nx + (z - bz) * nz;
+            double along = (x - bx) * ux + (z - bz) * uz;
+            double vIn = vx * nx + vz * nz;
+            double vUp = vx * ux + vz * uz;
+            if (depth > backWall && vIn > 0) { vIn = -e * vIn; spinRate *= e; }      // back wall
+            if (along < ballRadius && vUp < 0) vUp = -e * vUp;                       // floor
+            if (along > openingLength - ballRadius && vUp > 0) vUp = -e * vUp;       // ceiling
+            vx = vIn * nx + vUp * ux;
+            vz = vIn * nz + vUp * uz;
             r.path.add(new double[]{t, x / IN, z / IN, spinAngle});
+
+            if (depth < 0) return false;                       // came back out through the opening
+            stillSteps = Math.hypot(vx, vz) < 0.1 ? stillSteps + 1 : 0;
+            if (stillSteps > 150) return true;                 // settled in the corner of the cell
         }
+        return true;
+    }
+
+    /**
+     * Fire many practice shots, each a little off (random wobble in RPM, angle and distance),
+     * and count how many score AND stay in. Uses the same random numbers every time, so the
+     * percentage only changes when you change a setting.
+     */
+    public static Odds odds(Settings s, int shots) {
+        Random random = new Random(2026);
+        Settings test = copy(s);
+        Odds odds = new Odds();
+        for (int i = 0; i < shots; i++) {
+            // nextGaussian(): usually between -1 and 1, sometimes more - like real shot-to-shot error.
+            test.flywheelRpm = Math.max(0, s.flywheelRpm + random.nextGaussian() * s.rpmWobble);
+            test.launchAngleDeg = s.launchAngleDeg + random.nextGaussian() * s.angleWobbleDeg;
+            test.distanceIn = s.distanceIn + random.nextGaussian() * s.distanceWobbleIn;
+            Result r = simulate(test);
+            odds.shots++;
+            switch (r.outcome) {
+                case SCORED: odds.stayed++; break;
+                case BOUNCED_OUT: odds.bouncedOut++; break;
+                case RIM: odds.rim++; break;
+                default: odds.missed++;
+            }
+            // Shift each dot by how far that shot's robot was off, so all dots line up on the drawn HIVE.
+            odds.hits.add(new double[]{r.hitX - (test.distanceIn - s.distanceIn), r.hitZ, r.outcome.ordinal()});
+        }
+        return odds;
     }
 
     /** Try every flywheel speed with the other settings unchanged. Returns {fromRpm, toRpm} ranges that score. */
@@ -251,7 +335,8 @@ public class ShotPhysics {
         c.flywheelRpm = s.flywheelRpm; c.flywheelDiameterIn = s.flywheelDiameterIn; c.compressionPct = s.compressionPct;
         c.spin = s.spin; c.airEffects = s.airEffects;
         c.openingBottomIn = s.openingBottomIn; c.openingTopIn = s.openingTopIn; c.openingTiltDeg = s.openingTiltDeg;
-        c.cellDepthIn = s.cellDepthIn; c.hiveBottomIn = s.hiveBottomIn;
+        c.cellDepthIn = s.cellDepthIn; c.hiveBottomIn = s.hiveBottomIn; c.bounciness = s.bounciness;
+        c.rpmWobble = s.rpmWobble; c.angleWobbleDeg = s.angleWobbleDeg; c.distanceWobbleIn = s.distanceWobbleIn;
         return c;
     }
 }

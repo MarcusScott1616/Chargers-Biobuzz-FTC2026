@@ -24,6 +24,7 @@ public class ShotView extends JPanel {
     private final ShotPhysics.Settings settings;
     private ShotPhysics.Result result;
     private List<double[]> scoringRanges;
+    private ShotPhysics.Odds odds;
     private double animTime = -1;      // -1 = not animating, show the ball at the end of the shot
     private double flywheelAngle = 0;
 
@@ -32,9 +33,10 @@ public class ShotView extends JPanel {
         setBackground(new Color(30, 32, 40));
     }
 
-    public void setResult(ShotPhysics.Result result, List<double[]> scoringRanges) {
+    public void setResult(ShotPhysics.Result result, List<double[]> scoringRanges, ShotPhysics.Odds odds) {
         this.result = result;
         this.scoringRanges = scoringRanges;
+        this.odds = odds;
     }
 
     public void setAnimTime(double t) { animTime = t; }
@@ -51,7 +53,7 @@ public class ShotView extends JPanel {
         double minX = -20, maxX = settings.distanceIn + settings.cellDepthIn + 30;
         double maxZ = Math.max(settings.openingTopIn + 20, result.apexIn + 10);
         for (double[] p : result.path) maxX = Math.max(maxX, Math.min(p[1] + 6, settings.distanceIn + 150));
-        int top = 150, bottom = 70, side = 20;
+        int top = 215, bottom = 70, side = 20;
         double scale = Math.min((getWidth() - 2 * side) / (maxX - minX), (getHeight() - top - bottom) / maxZ);
 
         AffineTransform screen = g.getTransform();
@@ -61,6 +63,7 @@ public class ShotView extends JPanel {
         drawGround(g, minX, maxX);
         drawHive(g);
         drawShooter(g);
+        drawOddsDots(g);
         drawPath(g);
         drawBall(g);
 
@@ -171,6 +174,18 @@ public class ShotView extends JPanel {
         g.draw(p);
     }
 
+    /** One small dot per practice shot, where it reached the HIVE (or the floor). */
+    private void drawOddsDots(Graphics2D g) {
+        if (odds == null) return;
+        for (double[] h : odds.hits) {
+            ShotPhysics.Outcome o = ShotPhysics.Outcome.values()[(int) h[2]];
+            g.setColor(o == ShotPhysics.Outcome.SCORED ? new Color(80, 230, 110, 170)
+                    : o == ShotPhysics.Outcome.BOUNCED_OUT || o == ShotPhysics.Outcome.RIM ? new Color(255, 170, 50, 170)
+                    : new Color(255, 90, 90, 170));
+            g.fill(new Ellipse2D.Double(h[0] - 0.5, h[1] - 0.5, 1, 1));
+        }
+    }
+
     private void drawBall(Graphics2D g) {
         double[] pt = result.path.get(result.path.size() - 1);
         if (animTime >= 0) {
@@ -193,27 +208,50 @@ public class ShotView extends JPanel {
     private void drawText(Graphics2D g) {
         ShotPhysics.Result r = result;
         Color outcomeColor = r.outcome == ShotPhysics.Outcome.SCORED ? new Color(80, 230, 110)
-                : r.outcome == ShotPhysics.Outcome.RIM ? new Color(255, 190, 60) : new Color(255, 100, 100);
+                : r.outcome == ShotPhysics.Outcome.RIM || r.outcome == ShotPhysics.Outcome.BOUNCED_OUT ? new Color(255, 190, 60) : new Color(255, 100, 100);
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
         g.setColor(outcomeColor);
         g.drawString(r.message, 20, 32);
 
+        int y = 58;
+        if (odds != null) {
+            // The big number: out of many slightly-off shots, how many score and stay in?
+            double chance = odds.chance();
+            g.setColor(chance >= 80 ? new Color(80, 230, 110) : chance >= 50 ? new Color(255, 190, 60) : new Color(255, 100, 100));
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
+            g.drawString(String.format("Chance to score AND stay in: %.0f%%", chance), 20, y);
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+            g.setColor(new Color(200, 200, 210));
+            g.drawString(String.format("(%d practice shots with wobble:  %d stayed in,  %d bounced out,  %d hit the rim,  %d missed)",
+                    odds.shots, odds.stayed, odds.bouncedOut, odds.rim, odds.missed), 20, y += 20);
+            y += 24;
+        }
+
         g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+
+        // Summary of the main settings, so you always know what you're looking at.
+        ShotPhysics.Settings s = settings;
+        g.setColor(new Color(150, 200, 255));
+        g.drawString(String.format("SETTINGS  %s  |  distance %.0f in  |  angle %.1f deg  |  height %.1f in  |  %.0f%% squeeze  |  %s%s",
+                s.ball.label, s.distanceIn, s.launchAngleDeg, s.launchHeightIn, s.compressionPct,
+                s.spin.label.toLowerCase(), s.airEffects ? "" : "  |  no air"), 20, y);
+        y += 18;
+
         g.setColor(new Color(225, 225, 230));
-        int y = 56;
         g.drawString(String.format("Flywheel  %5.0f RPM   surface speed %5.1f ft/s   grip %3.0f%%",
                 settings.flywheelRpm, r.surfaceSpeedInPerSec / 12, r.grip * 100), 20, y);
         g.drawString(String.format("Ball exit %5.1f ft/s   ball spin %5.0f RPM %s",
                 r.exitSpeedInPerSec / 12, r.ballSpinRpm, settings.spin == ShotPhysics.Spin.NONE ? "" : settings.spin.name().toLowerCase()), 20, y += 18);
         g.drawString(String.format("Highest point %5.1f in   flight time %4.2f s", r.apexIn, r.flightTime), 20, y += 18);
-        if (r.outcome == ShotPhysics.Outcome.SCORED || r.outcome == ShotPhysics.Outcome.RIM) {
+        if (r.outcome == ShotPhysics.Outcome.SCORED || r.outcome == ShotPhysics.Outcome.BOUNCED_OUT
+                || r.outcome == ShotPhysics.Outcome.RIM) {
             g.drawString(String.format("At the HIVE: ball is %s, coming in %4.1f deg %s",
                     r.risingAtTarget ? "still RISING" : "falling",
                     Math.abs(r.entryAngleDeg), r.entryAngleDeg >= 0 ? "downward" : "upward"), 20, y += 18);
         }
         String window = scoringRanges == null || scoringRanges.isEmpty()
                 ? "No flywheel speed scores with these settings - change the angle or distance."
-                : "Speeds that score here: " + describe(scoringRanges);
+                : "Speeds that score and stay in (exact shot, no wobble): " + describe(scoringRanges);
         g.drawString(window, 20, y + 18);
     }
 
