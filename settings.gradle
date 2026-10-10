@@ -8,3 +8,4 @@ pluginManagement {
 
 include ':FtcRobotController'
 include ':TeamCode'
+include ':SwerveSim' // laptop-only swerve simulator, not part of the robot app

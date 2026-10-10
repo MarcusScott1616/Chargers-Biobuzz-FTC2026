@@ -1,0 +1,40 @@
+//
+// SwerveSim: a laptop simulator for the swerve drive. NOT part of the robot app.
+//
+// It compiles the REAL SwerveDrive.java from TeamCode together with fake FTC hardware
+// classes (in SwerveSim/src/main/java), then draws what the code tells the robot to do.
+//
+// Run it:  Gradle panel -> SwerveSim -> Tasks -> application -> run
+//     or:  ./gradlew :SwerveSim:run
+//
+
+apply plugin: 'java'
+apply plugin: 'application'
+
+sourceSets {
+    main {
+        java {
+            srcDir 'src/main/java'
+            srcDir '../TeamCode/src/main/java'
+            // Only take the pieces we have fakes for. Add more TeamCode files here when needed.
+            include 'swervesim/**'
+            include 'turretsim/**'
+            include 'com/qualcomm/**'
+            include 'org/firstinspires/ftc/robotcore/**'
+            include 'org/firstinspires/ftc/teamcode/SwerveCode/SwerveDrive.java'
+            include 'org/firstinspires/ftc/teamcode/SwerveCode/SwerveDriveV2.java'
+        }
+    }
+}
+
+application {
+    mainClass = 'swervesim.SwerveSim'
+}
+
+// Turret / shooter simulator:  ./gradlew :SwerveSim:runTurret
+tasks.register('runTurret', JavaExec) {
+    group = 'application'
+    description = 'Runs the turret / shooter simulator.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'turretsim.TurretSim'
+}
