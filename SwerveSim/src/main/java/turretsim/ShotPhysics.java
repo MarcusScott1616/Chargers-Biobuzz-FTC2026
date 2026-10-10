@@ -74,8 +74,8 @@ public class ShotPhysics {
         // Shooter
         public double distanceIn = 72;          // floor distance from where the ball leaves the shooter to the bottom edge of the opening
         public double launchHeightIn = 14;      // height where the ball leaves the shooter
-        public double launchAngleDeg = 55;      // 0 = flat, 90 = straight up
-        public double flywheelRpm = 3000;
+        public double launchAngleDeg = 37.5;     // 0 = flat, 90 = straight up
+        public double flywheelRpm = 3900;
         public double flywheelDiameterIn = 4;
         public double compressionPct = 15;
         public Spin spin = Spin.BACKSPIN;
@@ -208,7 +208,7 @@ public class ShotPhysics {
                         r.message = "SCORED - and it stayed in!";
                     } else {
                         r.outcome = Outcome.BOUNCED_OUT;
-                        r.message = "Went in, but BOUNCED OUT - too fast. Try a slower, loopier shot.";
+                        r.message = "Went in, but BOUNCED OUT. Try other angles - watch the Odds number.";
                     }
                     return r;
                 }
