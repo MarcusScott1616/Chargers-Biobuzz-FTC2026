@@ -1,12 +1,6 @@
 package org.firstinspires.ftc.teamcode.pedro;
 
+// No tuners are registered yet. Pedro's mecanum tuner measures mecanum wheels,
+// so it does not apply to this swerve robot. Swerve tuning still needs a plan.
 public class Tuning {
-
-    @Tuner
-    public static Procedure mecanumTuner() {
-        return new MecanumTuner();
-        // WHILE connected to robot controller, open this link into browser
-        // http://192.168.43.1:10158
-        //unsure if we can tune Swerve the same way as we do Mechanum
-    }
 }
