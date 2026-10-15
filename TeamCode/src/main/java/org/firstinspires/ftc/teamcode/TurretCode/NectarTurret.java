@@ -5,7 +5,6 @@ import com.qualcomm.hardware.limelightvision.LLResultTypes;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
@@ -16,7 +15,7 @@ import com.qualcomm.robotcore.util.Range;
  * PollenTurret.java is the same idea for the small ball; each turret is tuned on its own.
  *
  * Every loop, update() does three jobs:
- *   1. AIM:      a PD loop turns the turret until the AprilTag is centered in the Limelight (tx = 0).
+ *   1. AIM:      nudge the turret SERVO until the AprilTag is centered in the Limelight (tx = 0).
  *   2. DISTANCE: the Limelight's up/down angle to the tag (ty) + trig = how far away the HIVE is.
  *   3. SHOT:     look the distance up in SHOT_TABLE -> hood angle (servo) + flywheel RPM (PIDF loop).
  *
@@ -24,7 +23,7 @@ import com.qualcomm.robotcore.util.Range;
  * Anything marked "LIMELIGHT:" is something you also have to set up in the Limelight web page.
  *
  * Hardware (names must match the Driver Station robot configuration):
- *   "nectarTurret"    - motor that spins the turret left/right (with encoder)
+ *   "nectarTurret"    - SERVO that spins the turret left/right (no encoder, so we track the angle ourselves)
  *   "nectarFlywheel"  - goBILDA 5203 6000 RPM motor, 1:1 to the flywheel
  *   "nectarHood"      - servo that sets the hood angle
  *   The Limelight 3A is passed in to init(), so the OpMode decides which camera this turret uses.
@@ -51,20 +50,27 @@ public class NectarTurret {
     // Put a tape measure down, compare, and put the difference here (+ = the shot distance is farther).
     public static double DISTANCE_OFFSET_IN = 0.0;
 
-    // ======================= AIMING (turret left/right) =======================
+    // ======================= AIMING (turret left/right, SERVO) =======================
 
+    // A servo has no encoder, so we keep our own "commanded angle" and nudge it toward the tag each loop.
+    // When we stop sending changes, the servo holds its position.
     // TUNE: start with kD = 0 and raise kP until the turret snaps onto the tag and wobbles a little,
     // then add kD to stop the wobble. (TurretTestTeleOp lets you change these with the gamepad.)
-    public double aimKP = 0.02;                        // motor power per degree of error
-    public double aimKD = 0.001;
+    // kP = fraction of the aim error corrected each loop (0.2 = 20% per loop).
+    public double aimKP = 0.2;
+    public double aimKD = 0.02;
     public static double AIM_TOLERANCE_DEG = 1.0;      // "close enough" to shoot
-    public static double AIM_MAX_POWER = 0.6;
     public static double AIM_OFFSET_DEG = 0.0;         // TUNE: aim a bit left/right of the tag if shots drift sideways
 
-    // TUNE: keeps the turret from wrapping its own wires (skip if you use a slip ring).
-    // Turn the turret by hand 90 degrees and read the encoder to find TICKS_PER_DEGREE.
-    public static double TURRET_TICKS_PER_DEGREE = 3.0;
-    public static double TURRET_LIMIT_DEG = 150;       // turret can go this far either way from where it started
+    // TUNE: the servo position for "straight ahead". 0.5 is the middle of a 0-1 servo.
+    public static double TURRET_SERVO_CENTER = 0.5;
+    // TUNE: how many TURRET degrees the servo position moves across 0 -> 1. Include the gears:
+    // (servo travel in degrees) x (turret gear ratio). Example: a 300 deg servo driving the turret 1:1 = 300.
+    public static double TURRET_DEG_PER_SERVO_UNIT = 300;
+    // TUNE: flip to true if the turret turns AWAY from the tag when you test it.
+    public static boolean TURRET_SERVO_REVERSED = false;
+    // Keeps the turret from wrapping its own wires (skip if you use a slip ring).
+    public static double TURRET_LIMIT_DEG = 150;       // turret can go this far either way from straight ahead
 
     // ======================= FLYWHEEL =======================
 
@@ -111,8 +117,8 @@ public class NectarTurret {
 
     // ======================= state =======================
 
-    private DcMotorEx turret, flywheel;
-    private Servo hood;
+    private Servo turret, hood;
+    private DcMotorEx flywheel;
     private Limelight3A limelight;
     private final ElapsedTime timer = new ElapsedTime();
 
@@ -122,6 +128,7 @@ public class NectarTurret {
 
     private boolean tagVisible = false;
     private double aimErrorDeg = 0, lastAimError = 0;
+    private double turretCmdDeg = 0;                    // the angle we ASKED the turret servo for (0 = straight ahead)
     private double distanceIn = -1;                     // -1 = never seen the tag
     private double targetRpm = 0, currentRpm = 0, targetHoodDeg = 45;
     private double flyIntegral = 0, lastFlyError = 0;
@@ -129,13 +136,12 @@ public class NectarTurret {
     public void init(HardwareMap hardwareMap, Limelight3A limelight) {
         this.limelight = limelight;
 
-        turret = hardwareMap.get(DcMotorEx.class, "nectarTurret");
-        turret.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);    // wherever it starts = 0 degrees
-        turret.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);       // we do our own PD, but still read the encoder
-        turret.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.BRAKE);
+        turret = hardwareMap.get(Servo.class, "nectarTurret");
+        turretCmdDeg = 0;
+        setTurretAngle(turretCmdDeg);                   // start pointing straight ahead
 
         flywheel = hardwareMap.get(DcMotorEx.class, "nectarFlywheel");
-        flywheel.setDirection(DcMotorSimple.Direction.FORWARD);    // TUNE: flip if it spins backwards
+        flywheel.setDirection(DcMotor.Direction.FORWARD);    // TUNE: flip if it spins backwards (DcMotor's own Direction enum)
         flywheel.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         flywheel.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);     // our own PIDF below
         flywheel.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT); // coast down, don't slam the brakes
@@ -155,7 +161,7 @@ public class NectarTurret {
         timer.reset();
 
         readLimelight();
-        aim(dt);
+        aim();
         runShot(dt);
     }
 
@@ -184,26 +190,29 @@ public class NectarTurret {
         }
     }
 
-    // ---------- 1: turn the turret (PD on tx) ----------
+    // ---------- 1: turn the turret (servo, nudged by a PD on tx) ----------
 
-    private void aim(double dt) {
-        if (!tagVisible) {               // no tag: stop and wait. (You could add a "search" sweep here.)
-            turret.setPower(0);
+    private void aim() {
+        if (!tagVisible) {               // no tag: hold still. (You could add a "search" sweep here.)
             lastAimError = 0;
             return;
         }
-        // tx is + when the tag is to the RIGHT. TUNE: if the turret turns AWAY from the tag, flip the sign here.
+
+        // tx is + when the tag is to the RIGHT. TUNE: if the turret turns AWAY from the tag, set TURRET_SERVO_REVERSED.
         double error = aimErrorDeg;
-        double derivative = dt > 0 ? (error - lastAimError) / dt : 0;
+        double change = Math.abs(error) < AIM_TOLERANCE_DEG ? 0
+                : aimKP * error + aimKD * (error - lastAimError);   // how far to move this loop, in degrees
         lastAimError = error;
 
-        double power = Math.abs(error) < AIM_TOLERANCE_DEG ? 0
-                : Range.clip(aimKP * error + aimKD * derivative, -AIM_MAX_POWER, AIM_MAX_POWER);
+        // Soft limit so the wires don't wrap: don't keep turning past the limit.
+        turretCmdDeg = Range.clip(turretCmdDeg + change, -TURRET_LIMIT_DEG, TURRET_LIMIT_DEG);
+        setTurretAngle(turretCmdDeg);
+    }
 
-        // Soft limits so the wires don't wrap: don't keep turning past the limit.
-        double turretDeg = turret.getCurrentPosition() / TURRET_TICKS_PER_DEGREE;
-        if ((turretDeg > TURRET_LIMIT_DEG && power > 0) || (turretDeg < -TURRET_LIMIT_DEG && power < 0)) power = 0;
-        turret.setPower(power);
+    /** Turn a turret angle (deg, + = right) into a servo position. */
+    private void setTurretAngle(double deg) {
+        double units = deg / TURRET_DEG_PER_SERVO_UNIT;
+        turret.setPosition(Range.clip(TURRET_SERVO_CENTER + (TURRET_SERVO_REVERSED ? -units : units), 0, 1));
     }
 
     // ---------- 3: hood + flywheel ----------
@@ -284,11 +293,11 @@ public class NectarTurret {
     public double getTargetRpm() { return targetRpm; }
     public double getCurrentRpm() { return currentRpm; }
     public double getTargetHoodDeg() { return targetHoodDeg; }
-    public double getTurretDeg() { return turret.getCurrentPosition() / TURRET_TICKS_PER_DEGREE; }
+    /** The angle we COMMANDED the turret to (a servo has no encoder, so this is not a measured position). */
+    public double getTurretDeg() { return turretCmdDeg; }
 
     public void stop() {
         flywheelOn = false;
-        turret.setPower(0);
-        flywheel.setPower(0);
+        flywheel.setPower(0);      // the turret servo just holds where it is
     }
 }
