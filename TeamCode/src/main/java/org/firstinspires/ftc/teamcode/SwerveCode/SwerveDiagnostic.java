@@ -13,7 +13,7 @@ public class SwerveDiagnostic extends OpMode {
     public void init(){
         swerve.init(hardwareMap);
 
-        telemetry.addLine("Diagnostic Mode!");
+        telemetry.addLine("Diagnostic Mode.");
         telemetry.addLine("D-Pad UP:        Test RED motor");
         telemetry.addLine("D-Pad Right:     Test BLUE motor");
         telemetry.addLine("D-Pad Left:      Test GREEN motor");
@@ -43,7 +43,7 @@ public class SwerveDiagnostic extends OpMode {
         for (ServoImplEx servo : swerve.servoList){
             servo.setPosition(servoPos);
         }
-        //directly command individual motorrs to spin for testing
+        //directly command individual motors to spin for testing
         swerve.move(
                 (float) (bluePow + redPow),   //strafeX power feed
                 (float) (greenPow + yellowPow), //strafe Y power feed
