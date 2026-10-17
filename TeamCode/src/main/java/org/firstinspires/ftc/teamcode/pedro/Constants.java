@@ -6,19 +6,16 @@ import com.pedropathing.controllers.Controller;
 import com.pedropathing.drivetrain.Drivetrain;
 import com.pedropathing.follower.Follower;
 import com.pedropathing.localization.Localizer;
+import com.pedropathing.math.Vector2D;
+import com.pedropathing.revhub.drivetrains.CoaxialPod;
 import com.pedropathing.revhub.drivetrains.CoaxialPodConfig;
+import com.pedropathing.revhub.drivetrains.Swerve;
 import com.pedropathing.revhub.drivetrains.SwerveConfig;
+import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
+import com.qualcomm.robotcore.hardware.HardwareMap;
 
 public class Constants {
-
-    public static SwerveConfig driveConfig = new SwerveConfig(
-            c -> {
-                c.zeroPowerBehavior.set(SwerveConfig.ZeroPowerBehavior.IGNORE_ANGLE_CHANGES);
-                c.manualBrakeMode.set(true);
-                c.voltageCompensation.set(false);
-            }
-    );
 
     public static CoaxialPodConfig yellowPod = new CoaxialPodConfig(
             c -> {
@@ -30,6 +27,9 @@ public class Constants {
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+
+                c.angleOffsetRad.set(Math.toRadians(0));
+                c.podOffset.set(Vector2D.cartesian(-6, 6));
             }
     );
 
@@ -43,6 +43,10 @@ public class Constants {
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+
+                c.angleOffsetRad.set(Math.toRadians(0));
+                c.podOffset.set(Vector2D.cartesian(6, 6));
+
             }
     );
 
@@ -56,6 +60,10 @@ public class Constants {
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+
+                c.angleOffsetRad.set(Math.toRadians(0));
+                c.podOffset.set(Vector2D.cartesian(-6, -6));
+
             }
     );
 
@@ -69,6 +77,27 @@ public class Constants {
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+
+                c.angleOffsetRad.set(Math.toRadians(0));
+                c.podOffset.set(Vector2D.cartesian(6, -6));
+
             }
     );
+
+    public static SwerveConfig driveConfig = new SwerveConfig(
+            c -> {
+                c.zeroPowerBehavior.set(SwerveConfig.ZeroPowerBehavior.X_LOCK);
+                c.manualBrakeMode.set(true);
+                c.voltageCompensation.set(false);
+            }
+    );
+
+    public static Follower create(HardwareMap h) {
+        CoaxialPod yellow = new CoaxialPod(h, yellowPod);
+        CoaxialPod red = new CoaxialPod(h, redPod);
+        CoaxialPod blue = new CoaxialPod(h, bluePod);
+        CoaxialPod green = new CoaxialPod(h, greenPod);
+        return new Follower(new PinpointLocalizer(h, localizerConfig), new Swerve(h, driveConfig,
+                blue, yellow, green, red), new Foresight(foresightConfig));
+    }
 }
