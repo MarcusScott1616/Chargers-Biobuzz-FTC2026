@@ -74,6 +74,7 @@ public class SwerveDriveV2 {
                 RevHubOrientationOnRobot.LogoFacingDirection.UP,
                 RevHubOrientationOnRobot.UsbFacingDirection.BACKWARD)));
         imu.resetYaw();
+        //I'm not sure what our IMU and REV HUB orientation is going to look like so far.
 
         double halfL = WheelbaseLength / 2, halfW = WheelbaseWidth / 2;
         modules = new Module[]{

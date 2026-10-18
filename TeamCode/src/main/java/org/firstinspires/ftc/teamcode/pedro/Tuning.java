@@ -5,8 +5,6 @@ import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.pedropathing.tuning.autotune.Procedure;
 import com.pedropathing.tuning.autotune.Tuner;
 
-// No tuners are registered yet. Pedro's mecanum tuner measures mecanum wheels,
-// so it does not apply to this swerve robot. Swerve tuning still needs a plan.
 public class Tuning {
 
     @Tuner

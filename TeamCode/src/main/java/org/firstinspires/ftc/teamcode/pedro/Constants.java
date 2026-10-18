@@ -11,6 +11,7 @@ import com.pedropathing.revhub.drivetrains.CoaxialPod;
 import com.pedropathing.revhub.drivetrains.CoaxialPodConfig;
 import com.pedropathing.revhub.drivetrains.Swerve;
 import com.pedropathing.revhub.drivetrains.SwerveConfig;
+import com.pedropathing.revhub.localizers.PinpointConfig;
 import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -97,7 +98,11 @@ public class Constants {
         CoaxialPod red = new CoaxialPod(h, redPod);
         CoaxialPod blue = new CoaxialPod(h, bluePod);
         CoaxialPod green = new CoaxialPod(h, greenPod);
-        return new Follower(new PinpointLocalizer(h, localizerConfig), new Swerve(h, driveConfig,
-                blue, yellow, green, red), new Foresight(foresightConfig));
+
+        return new Follower(new PinpointLocalizer(h, new PinpointConfig() ), new Swerve(h, driveConfig,
+                blue, yellow, green, red), new Foresight( foresightConfig ));
+        //changed foresightconfig to new ForesightConfig
+        // changed localizerconfig to new PinpointConfig()
+
     }
 }
