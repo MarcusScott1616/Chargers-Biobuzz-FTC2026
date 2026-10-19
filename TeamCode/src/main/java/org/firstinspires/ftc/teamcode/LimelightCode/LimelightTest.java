@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.IMU;
 
+import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.Pose3D;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 
@@ -38,7 +39,7 @@ public class LimelightTest extends OpMode {
     @Override
     public void loop(){
         YawPitchRollAngles orientation = imu.getRobotYawPitchRollAngles();
-        limelight.updateRobotOrientation(orientation.getYaw());
+        limelight.updateRobotOrientation(orientation.getYaw(AngleUnit.DEGREES));
         LLResult llResult = limelight.getLatestResult();
         if(llResult != null && llResult.isValid()) {
             Pose3D botPose = llResult.getBotpose_MT2();

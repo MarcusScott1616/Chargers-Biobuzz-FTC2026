@@ -50,7 +50,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
  * I altered:
  * Biggest thing was Swerve Modules. Rather than calculating the power and degrees for
  * one swerve module and copy/pasting it to all of them,
- * I created individual programming for each module
+ * individual programming for each module
  *
  */
 public class SwerveDrive {

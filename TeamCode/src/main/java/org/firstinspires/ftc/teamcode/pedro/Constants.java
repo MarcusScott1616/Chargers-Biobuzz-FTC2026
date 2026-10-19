@@ -99,10 +99,11 @@ public class Constants {
         CoaxialPod blue = new CoaxialPod(h, bluePod);
         CoaxialPod green = new CoaxialPod(h, greenPod);
 
+
         return new Follower(new PinpointLocalizer(h, new PinpointConfig() ), new Swerve(h, driveConfig,
                 blue, yellow, green, red), new Foresight( foresightConfig ));
-        //changed foresightconfig to new ForesightConfig
-        // changed localizerconfig to new PinpointConfig()
+
+   // changed this up a bit, but it still has errors. unsure what it will turn out to be.
 
     }
 }
