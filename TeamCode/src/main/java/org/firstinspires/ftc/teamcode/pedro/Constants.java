@@ -13,10 +13,19 @@ import com.pedropathing.revhub.drivetrains.Swerve;
 import com.pedropathing.revhub.drivetrains.SwerveConfig;
 import com.pedropathing.revhub.localizers.PinpointConfig;
 import com.pedropathing.revhub.localizers.PinpointLocalizer;
+import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
+import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+
 public class Constants {
+
+    // Odometry pod offsets. Pinpoint takes doubles, so these are doubles too.
+    public static double xOffset = 4; //Odometry pods.
+    // Distance from Center point in mm. To the Left would be positive for X offset
+    public static double yOffset = 4; //Odometry pods.
+    // Distance from Center point in mm. To the Front would be positive for Y offset.
 
     public static CoaxialPodConfig yellowPod = new CoaxialPodConfig(
             c -> {
@@ -100,10 +109,35 @@ public class Constants {
         CoaxialPod green = new CoaxialPod(h, greenPod);
 
 
-        return new Follower(new PinpointLocalizer(h, new PinpointConfig() ), new Swerve(h, driveConfig,
+        return new Follower(new PinpointLocalizer(h, pinpointConfig), new Swerve(h, driveConfig,
                 blue, yellow, green, red), new Foresight( foresightConfig ));
 
    // changed this up a bit, but it still has errors. unsure what it will turn out to be.
 
     }
+    public static ForesightConfig foresightConfig = new ForesightConfig(
+            c -> {
+                c.parametricTConstraint.set(0.025);
+                c.velocityConstraint.set(0.1);
+                c.translationalConstraint.set(0.1);
+                c.headingConstraint.set(0.007);
+                c.timeoutConstraint.set(100.0);
+                // Other Foresight constants...
+            }
+    );
+
+    // Odometry computer (goBILDA Pinpoint). Everything the Pinpoint needs is set here,
+    // inside the config lambda, instead of calling methods on the driver directly.
+    public static PinpointConfig pinpointConfig = new PinpointConfig(
+            c -> {
+                c.name.set("pinpoint"); // must match the device name in the Robot Configuration
+                c.xPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
+                c.yPodDirection.set(GoBildaPinpointDriver.EncoderDirection.FORWARD);
+                c.xPodOffset.set(xOffset);
+                c.yPodOffset.set(yOffset);
+                c.offsetUnits.set(DistanceUnit.MM); // the offsets above are in mm
+                c.podType.set(GoBildaPinpointDriver.GoBildaOdometryPods.goBILDA_4_BAR_POD);
+            }
+    );
+
 }

@@ -1,16 +1,7 @@
 package org.firstinspires.ftc.teamcode.pedro;
 
-import com.pedropathing.revhub.localizers.PinpointConfig;
-import com.pedropathing.revhub.localizers.PinpointLocalizer;
-import com.pedropathing.tuning.autotune.Procedure;
-import com.pedropathing.tuning.autotune.Tuner;
-
+// The tuning library (1.0.1) has no PinpointTuner class, so the @Tuner method that used it
+// was removed. Add a @Tuner Procedure here once you pick a tuner that exists in the library.
 public class Tuning {
-
-    @Tuner
-    public static Procedure pinpointTuner() {
-        return new PinpointTuner();
-        //I like the pinpoint tuner, it seems like the easiest one to set up.
-    }
 }
 
