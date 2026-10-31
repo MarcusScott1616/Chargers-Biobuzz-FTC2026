@@ -10,28 +10,16 @@ import com.qualcomm.robotcore.hardware.ServoImplEx;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 
 /*
- * SwerveDriveV2 - the fixed version of SwerveDrive.
- * Same device names and the same move(strafeX, strafeY, rotate) call, so it's a drop-in swap.
- * The old SwerveDrive is left alone so we can compare them in SwerveSim (press T).
+ * SwerveDriveV2 - field-centric swerve drive.
+ * Call init() once, then move(strafeX, strafeY, rotate) every loop.
  *
- * What was wrong in SwerveDrive, and what this class does instead:
- *
- *   1. LEFT AND RIGHT WERE SWAPPED. Each wheel used the math meant for the wheel on the other
- *      side. Driving straight still worked (every wheel gets the same angle), but spinning
- *      made the wheels point at the center of the robot and fight each other.
- *      FIX: every wheel does the same calculation using ITS OWN position on the robot:
- *           wheel push = (drive push) + (spin push at that wheel's spot).
- *      No hand-copied formulas per wheel = nothing to swap by accident.
- *
- *   2. THE SERVO WAS ASKED FOR ANGLES IT CAN'T REACH. A goBILDA servo turns about 300 degrees,
- *      not a full circle, and the old code could ask for positions below 0 or above 1.
- *      FIX: a wheel pointing one way and driving forward does the same thing as the wheel
- *           pointing the opposite way and driving backward. So for every target we check
- *           both options (and their full-circle twins), throw out any the servo can't reach,
- *           and pick the one closest to where the wheel already is.
- *
- *   3. WHEELS SNAPPED BACK TO FORWARD when the sticks were let go (atan2(0, 0) = 0).
- *      FIX: if there's (almost) no input, the wheels keep their angle and the motors stop.
+ * How it works:
+ *   1. Every wheel uses the same math with ITS OWN position on the robot:
+ *        wheel push = (drive push) + (spin push at that wheel's spot).
+ *   2. A goBILDA servo turns about 300 degrees, not a full circle. For each target we also
+ *      check the opposite direction (the motor runs backwards), keep only the angles the servo
+ *      can reach, and pick the one closest to where the wheel already is.
+ *   3. If the sticks are (almost) centered, the motors stop and the wheels keep their angle.
  */
 public class SwerveDriveV2 {
 
@@ -111,7 +99,7 @@ public class SwerveDriveV2 {
      * @param rotate  counter-clockwise (-1) to clockwise (+1)
      */
     public void move(float strafeX, float strafeY, float rotate) {
-        // Fix 3: no input -> stop the motors but leave the wheels where they are.
+        // No stick input: stop the motors but leave the wheels where they are.
         if (Math.abs(strafeX) < DEADZONE && Math.abs(strafeY) < DEADZONE && Math.abs(rotate) < DEADZONE) {
             for (Module m : modules) m.motor.setPower(0);
             return;
@@ -122,7 +110,7 @@ public class SwerveDriveV2 {
         double driveX = strafeX * Math.cos(-yaw) - strafeY * Math.sin(-yaw);
         double driveY = strafeX * Math.sin(-yaw) + strafeY * Math.cos(-yaw);
 
-        // Fix 1: each wheel's push = drive push + spin push at that wheel's position.
+        // Each wheel's push = drive push + spin push at that wheel's position.
         // Spinning clockwise, a wheel's push is (y, -x) - sideways to the line from the center
         // to the wheel. Dividing by the half-diagonal makes the corner wheels' spin push = 1.
         double halfDiagonal = Math.hypot(WheelbaseLength, WheelbaseWidth) / 2;
@@ -145,7 +133,7 @@ public class SwerveDriveV2 {
         }
     }
 
-    /** Fix 2: point the wheel at a reachable angle closest to where it already is. */
+    /** Point the wheel at a reachable angle closest to where it already is. */
     private void setModule(Module m, double targetAngle, double targetPower) {
         double limit = Math.toRadians(SERVO_RANGE_DEGREES / 2); // servo reaches -limit .. +limit
         double bestAngle = m.angle, bestPower = 0, bestTurn = Double.MAX_VALUE;

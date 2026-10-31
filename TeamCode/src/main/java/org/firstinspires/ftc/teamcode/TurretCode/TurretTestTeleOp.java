@@ -1,6 +1,5 @@
 package org.firstinspires.ftc.teamcode.TurretCode;
 
-import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 
@@ -25,18 +24,13 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
  *     Dpad up/down      aim kD +/- step
  *     -> Write the good kP/kD numbers into the turret's class so they stick.
  *
- * LIMELIGHT: by default both turrets share ONE Limelight named "limelight" in the robot config.
- * If each turret has its own camera, set TWO_LIMELIGHTS = true and name them "nectarLimelight" and
- * "pollenLimelight". Two Limelights on one robot each need their own address - set a different
- * static IP for each in its web page settings, and check that both show up in the configuration.
- * NOTE: with one shared camera, only a turret the camera is mounted on can aim properly -
- * tx is "how far to turn" only for the turret carrying the camera.
+ * CAMERAS (HuskyLens, names must match the robot configuration):
+ *   "stationaryHusky" - fixed camera. Gives distance to the HIVE for BOTH turrets.
+ *   "turretHusky"     - camera on the NECTAR turret. Gives aim for NECTAR only.
+ *   POLLEN has no aim camera, so it doesn't auto-aim. Its readiness only checks the flywheel speed.
  */
 @TeleOp(name = "Turret Test", group = "Turret")
 public class TurretTestTeleOp extends OpMode {
-
-    // LIMELIGHT: see the note above.
-    private static final boolean TWO_LIMELIGHTS = false;
 
     private final NectarTurret nectar = new NectarTurret();
     private final PollenTurret pollen = new PollenTurret();
@@ -45,16 +39,16 @@ public class TurretTestTeleOp extends OpMode {
     private final double[] stepSizes = {0.01, 0.001, 0.0001, 0.00001};
     private int stepIndex = 1;
 
+    private TagCamera stationary, turretCam;   // the two HuskyLenses (see the notes above)
+
     @Override
     public void init() {
-        if (TWO_LIMELIGHTS) {
-            nectar.init(hardwareMap, hardwareMap.get(Limelight3A.class, "nectarLimelight"));
-            pollen.init(hardwareMap, hardwareMap.get(Limelight3A.class, "pollenLimelight"));
-        } else {
-            Limelight3A limelight = hardwareMap.get(Limelight3A.class, "limelight");
-            nectar.init(hardwareMap, limelight);
-            pollen.init(hardwareMap, limelight);
-        }
+        stationary = TagCamera.init(hardwareMap, "stationaryHusky");
+        turretCam = TagCamera.init(hardwareMap, "turretHusky");
+
+        nectar.init(hardwareMap, stationary, turretCam);
+        pollen.init(hardwareMap, stationary, null);   // no aim camera for Pollen
+
         telemetry.addLine("Turrets ready. Press PLAY.");
     }
 
@@ -68,7 +62,9 @@ public class TurretTestTeleOp extends OpMode {
         if (tuningNectar) handleNectarButtons();
         else handlePollenButtons();
 
-        // ----- run both turrets -----
+        // ----- read the cameras ONCE, then run both turrets -----
+        stationary.update();
+        turretCam.update();
         nectar.update();
         pollen.update();
 

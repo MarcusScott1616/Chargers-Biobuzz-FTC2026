@@ -14,7 +14,7 @@ import java.util.List;
  * Simple pretend-physics for the swerve robot.
  *
  * Every tick we:
- *   1. Turn each steering servo toward the position SwerveDrive asked for (servos take time to turn).
+ *   1. Turn each steering servo toward the position SwerveDriveV2 asked for (servos take time to turn).
  *   2. Work out which way each wheel is pushing, and how hard (from its angle and motor power).
  *   3. Find the robot motion (slide + spin) that best matches all four wheel pushes.
  *   4. Measure how much the wheels DISAGREE with that motion. We call this "wheel fight".
@@ -34,7 +34,7 @@ public class Physics {
     // ---------------- Numbers you can tweak ----------------
 
     /** Degrees the steering servo REALLY turns from position 0.0 to 1.0.
-     *  goBILDA servos: about 300. (The old SwerveDrive assumed 360 - press G in the sim to compare.) */
+     *  goBILDA servos: about 300. Press G to test a 360 degree servo. */
     public static double SERVO_RANGE_DEG = 300;
 
     /** How fast the steering servo turns, in degrees per second. */
@@ -66,7 +66,7 @@ public class Physics {
         /** Angle the wheel is pointing right now (radians). */
         public double angle() { return servoPosToAngle(servo, servoPos); }
 
-        /** Angle SwerveDrive asked for (radians). The wheel catches up to this over time. */
+        /** Angle SwerveDriveV2 asked for (radians). The wheel catches up to this over time. */
         public double commandedAngle() { return servoPosToAngle(servo, servo.getPosition()); }
 
         /** Motor power, flipped if the motor is set to REVERSE. */
@@ -93,7 +93,7 @@ public class Physics {
 
     public Physics(HardwareMap hw, double wheelbaseLength, double wheelbaseWidth) {
         double hl = wheelbaseLength / 2, hw2 = wheelbaseWidth / 2;
-        // Must match the device names and layout in SwerveDrive:
+        // Must match the device names and layout in SwerveDriveV2:
         //   RED--------BLU
         //    |          |
         //   GRN--------YLW

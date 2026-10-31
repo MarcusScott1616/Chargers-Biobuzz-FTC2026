@@ -1,8 +1,5 @@
 package org.firstinspires.ftc.teamcode.TurretCode;
 
-import com.qualcomm.hardware.limelightvision.LLResult;
-import com.qualcomm.hardware.limelightvision.LLResultTypes;
-import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.HardwareMap;
@@ -15,34 +12,32 @@ import com.qualcomm.robotcore.util.Range;
  * NectarTurret.java is the same idea for the big ball; each turret is tuned on its own.
  *
  * Every loop, update() does three jobs:
- *   1. AIM:      nudge the turret SERVO until the AprilTag is centered in the Limelight (tx = 0).
- *   2. DISTANCE: the Limelight's up/down angle to the tag (ty) + trig = how far away the HIVE is.
+ *   1. AIM:      nudge the turret SERVO until the AprilTag is centered in this turret's HuskyLens (if it has one).
+ *   2. DISTANCE: the STATIONARY HuskyLens's up/down angle to the tag (ty) + trig = how far away the HIVE is.
  *   3. SHOT:     look the distance up in SHOT_TABLE -> hood angle (servo) + flywheel RPM (PIDF loop).
  *
+ * CAMERAS: the OpMode calls update() on each TagCamera ONCE per loop, BEFORE this class's update().
+ *   distanceCam = the stationary HuskyLens (shared by both turrets)
+ *   aimCam      = the HuskyLens on this turret (null = this turret has no aim camera)
+ *
  * This is a SKELETON. Anything marked "TUNE:" is a guess or a placeholder - measure it on the robot.
- * Anything marked "LIMELIGHT:" is something you also have to set up in the Limelight web page.
  *
  * Hardware (names must match the Driver Station robot configuration):
  *   "pollenTurret"    - SERVO that spins the turret left/right (no encoder, so we track the angle ourselves)
  *   "pollenFlywheel"  - goBILDA 5203 6000 RPM motor, 1:1 to the flywheel
  *   "pollenHood"      - servo that sets the hood angle
- *   The Limelight 3A is passed in to init(), so the OpMode decides which camera this turret uses.
  */
 public class PollenTurret {
 
-    // ======================= LIMELIGHT =======================
-
-    // LIMELIGHT: open the Limelight web page (http://limelight.local:5801 while plugged into a laptop),
-    // make an AprilTag pipeline in this slot, and set its family to the one in the game manual.
-    public static int LIMELIGHT_PIPELINE = 0;
+    // ======================= CAMERAS =======================
 
     // TUNE: the AprilTag on the HIVE we aim at. Check the game manual for the real IDs.
     public static int TARGET_TAG_ID = 20;
 
-    // TUNE: measure these on the robot. They turn the Limelight's "ty" into a distance:
+    // TUNE: measure these on the robot. They turn the stationary camera's "ty" into a distance:
     //     distance = (tag height - camera height) / tan(camera tilt + ty)
-    public static double CAMERA_HEIGHT_IN = 12.0;      // floor to the center of the Limelight lens
-    public static double CAMERA_TILT_DEG = 25.0;       // how far the camera is tilted UP from flat
+    public static double CAMERA_HEIGHT_IN = 12.0;      // floor to the center of the stationary HuskyLens lens
+    public static double CAMERA_TILT_DEG = 25.0;       // how far the stationary camera is tilted UP from flat
     public static double TAG_HEIGHT_IN = 45.0;         // floor to the CENTER of the AprilTag on the HIVE
 
     // TUNE: the shot table uses the simulator's distance = floor distance from where the ball leaves
@@ -119,7 +114,8 @@ public class PollenTurret {
 
     private Servo turret, hood;
     private DcMotorEx flywheel;
-    private Limelight3A limelight;
+    private TagCamera distanceCam;     // stationary camera, for distance
+    private TagCamera aimCam;          // this turret's camera, for aiming (null if it has none)
     private final ElapsedTime timer = new ElapsedTime();
 
     private boolean flywheelOn = false;
@@ -133,8 +129,13 @@ public class PollenTurret {
     private double targetRpm = 0, currentRpm = 0, targetHoodDeg = 45;
     private double flyIntegral = 0, lastFlyError = 0;
 
-    public void init(HardwareMap hardwareMap, Limelight3A limelight) {
-        this.limelight = limelight;
+    /**
+     * @param distanceCam the stationary camera (used for distance)
+     * @param aimCam      the camera on this turret (used for aiming), or null if there isn't one
+     */
+    public void init(HardwareMap hardwareMap, TagCamera distanceCam, TagCamera aimCam) {
+        this.distanceCam = distanceCam;
+        this.aimCam = aimCam;
 
         turret = hardwareMap.get(Servo.class, "pollenTurret");
         turretCmdDeg = 0;
@@ -149,51 +150,46 @@ public class PollenTurret {
         hood = hardwareMap.get(Servo.class, "pollenHood");
         setHoodAngle(targetHoodDeg);
 
-        limelight.pipelineSwitch(LIMELIGHT_PIPELINE);
-        limelight.setPollRateHz(100);
-        limelight.start();      // safe to call twice if both turrets share one Limelight
         timer.reset();
     }
 
-    /** Call once every loop. */
+    /** Call once every loop, AFTER the OpMode has called update() on the cameras. */
     public void update() {
         double dt = timer.seconds();
         timer.reset();
 
-        readLimelight();
+        readCameras();
         aim();
         runShot(dt);
     }
 
     // ---------- 1 + 2: read the tag, work out aim error and distance ----------
 
-    private void readLimelight() {
+    private void readCameras() {
+        // Aim: from the camera on this turret. tx = how far left/right the tag is.
         tagVisible = false;
-        LLResult result = limelight.getLatestResult();
-        if (result == null || !result.isValid()) return;
+        if (aimCam != null) {
+            TagCamera.Tag tag = aimCam.findTag(TARGET_TAG_ID);
+            if (tag != null) {
+                tagVisible = true;
+                aimErrorDeg = tag.txDeg - AIM_OFFSET_DEG;
+            }
+        }
 
-        for (LLResultTypes.FiducialResult tag : result.getFiducialResults()) {
-            if (tag.getFiducialId() != TARGET_TAG_ID) continue;    // ignore other tags
-            tagVisible = true;
-
-            // tx: how far left/right the tag is (degrees). If the Limelight is mounted ON the turret,
-            // this is exactly how far the turret still has to turn.
-            // LIMELIGHT: keep the crosshair centered in the web page, or tx/ty will be offset.
-            aimErrorDeg = tag.getTargetXDegrees() - AIM_OFFSET_DEG;
-
-            // ty: how far up/down the tag is. Add the camera's tilt and use trig for the distance.
-            double angleToTag = Math.toRadians(CAMERA_TILT_DEG + tag.getTargetYDegrees());
+        // Distance: from the stationary camera. ty = how far up/down the tag is.
+        TagCamera.Tag far = distanceCam.findTag(TARGET_TAG_ID);
+        if (far != null) {
+            double angleToTag = Math.toRadians(CAMERA_TILT_DEG + far.tyDeg);
             if (angleToTag > 0.01) {
                 distanceIn = (TAG_HEIGHT_IN - CAMERA_HEIGHT_IN) / Math.tan(angleToTag) + DISTANCE_OFFSET_IN;
             }
-            return;
         }
     }
 
     // ---------- 1: turn the turret (servo, nudged by a PD on tx) ----------
 
     private void aim() {
-        if (!tagVisible) {               // no tag: hold still. (You could add a "search" sweep here.)
+        if (!tagVisible) {               // no tag or no aim camera: hold still.
             lastAimError = 0;
             return;
         }
@@ -224,7 +220,7 @@ public class PollenTurret {
         } else if (distanceIn > 0) {
             double[] shot = lookUp(distanceIn);    // uses the last distance seen, even if the tag blinks out
             targetHoodDeg = shot[0];
-            targetRpm = flywheelOn ? shot[1] : IDLE_RPM;
+            targetRpm = flywheelOn ? shot[1] : 0;
         } else {
             targetRpm = flywheelOn ? IDLE_RPM : 0;  // haven't seen the tag yet
         }
@@ -270,10 +266,13 @@ public class PollenTurret {
 
     // ---------- for the OpMode ----------
 
-    /** True when it's safe to feed a ball: tag seen, aimed, flywheel at speed. */
+    /**
+     * True when it's safe to feed a ball: flywheel at speed, and aimed.
+     * A turret with no aim camera can't check its aim, so it only checks the speed.
+     */
     public boolean readyToShoot() {
-        return flywheelOn && (manualMode || (tagVisible && Math.abs(aimErrorDeg) < AIM_TOLERANCE_DEG))
-                && targetRpm > 0 && Math.abs(targetRpm - currentRpm) < RPM_TOLERANCE;
+        boolean aimed = manualMode || aimCam == null || (tagVisible && Math.abs(aimErrorDeg) < AIM_TOLERANCE_DEG);
+        return flywheelOn && aimed && targetRpm > 0 && Math.abs(targetRpm - currentRpm) < RPM_TOLERANCE;
     }
 
     public void setFlywheelOn(boolean on) { flywheelOn = on; }
@@ -287,6 +286,7 @@ public class PollenTurret {
     public double getManualRpm() { return manualRpm; }
     public double getManualHoodDeg() { return manualHoodDeg; }
 
+    public boolean hasAimCamera() { return aimCam != null; }
     public boolean isTagVisible() { return tagVisible; }
     public double getAimErrorDeg() { return aimErrorDeg; }
     public double getDistanceIn() { return distanceIn; }

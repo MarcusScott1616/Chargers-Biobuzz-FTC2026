@@ -1,7 +1,6 @@
 package swervesim;
 
 import com.qualcomm.robotcore.hardware.HardwareMap;
-import org.firstinspires.ftc.teamcode.SwerveCode.SwerveDrive;
 import org.firstinspires.ftc.teamcode.SwerveCode.SwerveDriveV2;
 
 import javax.swing.BorderFactory;
@@ -21,16 +20,16 @@ import java.util.HashSet;
 import java.util.Set;
 
 /*
- * SwerveSim - drive the REAL SwerveDrive code on your laptop and watch what it does.
+ * SwerveSim - drive the REAL SwerveDriveV2 code on your laptop and watch what it does.
  *
  * How it works:
  *   - We create a fake HardwareMap (see SwerveSim/src/main/java/com/qualcomm/...).
- *   - We call the real SwerveDrive.init() and SwerveDrive.move() from TeamCode, exactly
+ *   - We call the real SwerveDriveV2.init() and SwerveDriveV2.move() from TeamCode, exactly
  *     like an OpMode would on the robot.
  *   - The fake servos and motors remember what they were told. Physics reads those
  *     values and moves a pretend robot, and FieldView draws it.
  *
- * So if you change SwerveDrive.java and run this again, you see your change.
+ * So if you change SwerveDriveV2.java and run this again, you see your change.
  *
  * Run it: Gradle panel -> SwerveSim -> Tasks -> application -> run
  *     or: ./gradlew :SwerveSim:run
@@ -38,10 +37,8 @@ import java.util.Set;
 public class SwerveSim {
     private static final int TICK_MS = 20; // 50 updates per second, similar to an OpMode loop
 
-    /** The two versions of the drive code we can switch between. Both are the real TeamCode classes. */
-    private final SwerveDrive oldSwerve = new SwerveDrive();
-    private final SwerveDriveV2 newSwerve = new SwerveDriveV2();
-    private boolean useNew = false;
+    /** The real robot drive code (from TeamCode). */
+    private final SwerveDriveV2 swerve = new SwerveDriveV2();
 
     private final Physics physics;
     private final FieldView fieldView;
@@ -56,12 +53,11 @@ public class SwerveSim {
 
     private SwerveSim() {
         HardwareMap hardwareMap = new HardwareMap();
-        // The real robot code! Both versions share the same fake motors and servos.
-        oldSwerve.init(hardwareMap);
-        newSwerve.init(hardwareMap);
+        // The real robot code! It talks to the fake motors and servos below.
+        swerve.init(hardwareMap);
 
-        physics = new Physics(hardwareMap, oldSwerve.WheelbaseLength, oldSwerve.WheelbaseWidth);
-        fieldView = new FieldView(physics, oldSwerve.WheelbaseLength, oldSwerve.WheelbaseWidth);
+        physics = new Physics(hardwareMap, swerve.WheelbaseLength, swerve.WheelbaseWidth);
+        fieldView = new FieldView(physics, swerve.WheelbaseLength, swerve.WheelbaseWidth);
 
         info.setEditable(false);
         info.setFocusable(false);
@@ -85,10 +81,7 @@ public class SwerveSim {
                 keysDown.add(e.getKeyCode());
                 if (e.getKeyCode() == KeyEvent.VK_R) {
                     physics.reset();
-                    oldSwerve.resetYaw();
-                    newSwerve.resetYaw();
-                } else if (e.getKeyCode() == KeyEvent.VK_T) {
-                    useNew = !useNew;
+                    swerve.resetYaw();
                 } else if (e.getKeyCode() == KeyEvent.VK_G) {
                     Physics.SERVO_RANGE_DEG = Physics.SERVO_RANGE_DEG == 300 ? 360 : 300;
                 }
@@ -117,8 +110,7 @@ public class SwerveSim {
 
         // Call the real robot code. If it crashes, show the error instead of closing the window.
         try {
-            if (useNew) newSwerve.move(strafeX, strafeY, rotate);
-            else oldSwerve.move(strafeX, strafeY, rotate);
+            swerve.move(strafeX, strafeY, rotate);
             lastError = null;
         } catch (RuntimeException ex) {
             lastError = ex.toString();
@@ -140,12 +132,10 @@ public class SwerveSim {
         s.append("  A / D   left / right       (strafeX)\n");
         s.append("  Q / E   rotate -1 / +1     (rotate)\n");
         s.append("  R       reset robot + IMU\n");
-        s.append("  T       swap old / new drive code\n");
         s.append("  G       swap servo model 300 / 360 deg\n\n");
 
-        s.append(String.format("CODE    %s%n", useNew ? "SwerveDriveV2 (fixed)" : "SwerveDrive (old)"));
         s.append(String.format("SERVOS  %.0f deg %s%n%n", Physics.SERVO_RANGE_DEG,
-                Physics.SERVO_RANGE_DEG == 300 ? "(real goBILDA)" : "(what old code assumes)"));
+                Physics.SERVO_RANGE_DEG == 300 ? "(real goBILDA)" : "(test only: not goBILDA)"));
 
         s.append("SENT TO move()\n");
         s.append(String.format("  strafeX %+5.2f  strafeY %+5.2f  rotate %+5.2f%n%n", strafeX, strafeY, rotate));

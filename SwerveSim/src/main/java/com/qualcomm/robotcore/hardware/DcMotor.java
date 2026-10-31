@@ -2,9 +2,9 @@ package com.qualcomm.robotcore.hardware;
 
 /*
  * FAKE drive motor for SwerveSim. It doesn't spin anything - it just remembers
- * what SwerveDrive told it so the simulator can read it back.
+ * what SwerveDriveV2 told it so the simulator can read it back.
  *
- * If SwerveDrive starts using a motor method that isn't here, the sim won't compile.
+ * If SwerveDriveV2 starts using a motor method that isn't here, the sim won't compile.
  * Fix: add that method below (it usually only needs to store or return a value).
  */
 public class DcMotor {

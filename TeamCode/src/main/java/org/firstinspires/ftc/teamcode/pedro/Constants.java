@@ -14,6 +14,7 @@ import com.pedropathing.revhub.drivetrains.SwerveConfig;
 import com.pedropathing.revhub.localizers.PinpointConfig;
 import com.pedropathing.revhub.localizers.PinpointLocalizer;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
@@ -36,7 +37,7 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.FORWARD);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
                 c.podOffset.set(Vector2D.cartesian(-6, 6));
@@ -52,7 +53,7 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.FORWARD);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
                 c.podOffset.set(Vector2D.cartesian(6, 6));
@@ -69,7 +70,7 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.FORWARD);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
                 c.podOffset.set(Vector2D.cartesian(-6, -6));
@@ -82,11 +83,11 @@ public class Constants {
                 c.name.set("green");
                 c.motorName.set("greenMotor");
                 c.servoName.set("greenServo");
-                c.servoEncoderName.set("greenServo Encoder");
+                c.servoEncoderName.set("greenServoEncoder");
                 c.turnController.set(Controller.pid(0.3, 0, 0.0086)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(DcMotorSimple.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.FORWARD);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
                 c.podOffset.set(Vector2D.cartesian(6, -6));
@@ -108,12 +109,8 @@ public class Constants {
         CoaxialPod blue = new CoaxialPod(h, bluePod);
         CoaxialPod green = new CoaxialPod(h, greenPod);
 
-
         return new Follower(new PinpointLocalizer(h, pinpointConfig), new Swerve(h, driveConfig,
-                blue, yellow, green, red), new Foresight( foresightConfig ));
-
-   // changed this up a bit, but it still has errors. unsure what it will turn out to be.
-
+                blue, yellow, green, red), new Foresight(foresightConfig));
     }
     public static ForesightConfig foresightConfig = new ForesightConfig(
             c -> {
