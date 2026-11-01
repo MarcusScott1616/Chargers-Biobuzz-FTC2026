@@ -26,15 +26,23 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
+import java.util.Arrays;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 
 /*
  * TurretSim - try out shooter settings on a laptop before testing on the robot.
  *
- * Change any number in the tabs on the right and the dashed path updates right away.
- * Press "Shoot!" (or Space) to watch the ball fly.
- * The bar at the bottom shows every flywheel speed that would score with the other settings.
+ * The robot has two turrets, so the sim shows both at once:
+ *   BACK turret  - the Shooter and Ball tabs (Nectar by default)
+ *   FRONT turret - the Front turret tab (Pollen by default). It sits a set gap in front of the
+ *                  back turret, toward the HIVE, and has its own ball, angle and flywheel speed.
+ * The HIVE, air and wobble settings are shared by both turrets.
+ *
+ * Change any number in the tabs on the right and the dashed paths update right away.
+ * Press "Shoot!" (or Space) to watch both balls fly at the same time.
+ * The bars at the bottom show every flywheel speed that would score for each turret.
  *
  * Run it: Gradle panel -> SwerveSim -> Tasks -> application -> runTurret
  *     or: ./gradlew :SwerveSim:runTurret
@@ -46,14 +54,19 @@ public class TurretSim {
     private static final int PANEL_WIDTH = 300;
     private static final int PRACTICE_SHOTS = 200;
 
-    private final ShotPhysics.Settings settings = new ShotPhysics.Settings();
-    private final ShotView view = new ShotView(settings);
-    private JSpinner massSpinner;
+    private final ShotPhysics.Settings settings = new ShotPhysics.Settings();       // back turret
+    private final ShotPhysics.Settings frontSettings = new ShotPhysics.Settings();  // front turret
+    private double frontGapIn = 12;                                                  // how far the front turret is in front of the back one
+
+    private final ShotView.Turret backTurret = new ShotView.Turret(settings, 0);
+    private final ShotView.Turret frontTurret = new ShotView.Turret(frontSettings, 0);
+    private final List<ShotView.Turret> turrets = Arrays.asList(backTurret, frontTurret);
+    private final ShotView view = new ShotView(turrets);
+
+    private JSpinner massSpinner, frontMassSpinner;
     private JCheckBox slowMotion;
 
-    private ShotPhysics.Result result;
     private double animTime = -1;
-    private double flywheelAngle = 0;
     private long lastTick = System.nanoTime();
 
     public static void main(String[] args) {
@@ -61,6 +74,14 @@ public class TurretSim {
     }
 
     private TurretSim() {
+        // The front turret starts out shooting Pollen from 12 in high, 12 in closer to the HIVE
+        // (the robot's 60 in Pollen shot). The back turret's default launch height is 14 in.
+        frontSettings.ball = ShotPhysics.Ball.POLLEN;
+        frontSettings.ballMassGrams = ShotPhysics.Ball.POLLEN.defaultMassGrams;
+        frontSettings.launchHeightIn = 12;
+        frontSettings.launchAngleDeg = 47.5;
+        frontSettings.flywheelRpm = 3150;
+
         JFrame frame = new JFrame("TurretSim - Chargers Biobuzz");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLayout(new BorderLayout());
@@ -94,8 +115,9 @@ public class TurretSim {
         top.add(slowMotion, BorderLayout.SOUTH);
 
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Shooter", scroll(buildShooterTab()));
-        tabs.addTab("Ball", scroll(buildBallTab()));
+        tabs.addTab("Back shooter", scroll(buildShooterTab()));
+        tabs.addTab("Back ball", scroll(buildBallTab()));
+        tabs.addTab("Front turret", scroll(buildFrontTab()));
         tabs.addTab("HIVE", scroll(buildHiveTab()));
         tabs.addTab("Odds", scroll(buildOddsTab()));
 
@@ -108,6 +130,7 @@ public class TurretSim {
 
     private Form buildShooterTab() {
         Form f = new Form();
+        f.note("This is the BACK turret. The FRONT turret has its own tab.");
         f.number("Distance to HIVE (in)", settings.distanceIn, 0, 300, 1, v -> settings.distanceIn = v);
         f.number("Launch angle (deg)  0 = flat, 90 = straight up", settings.launchAngleDeg, 0, 89, 0.5, v -> settings.launchAngleDeg = v);
         f.number("Launch height (in)", settings.launchHeightIn, 2, 40, 0.5, v -> settings.launchHeightIn = v);
@@ -116,13 +139,14 @@ public class TurretSim {
         f.number("Compression (% of ball diameter)", settings.compressionPct, 0, 60, 1, v -> settings.compressionPct = v);
         f.combo("Spin", ShotPhysics.Spin.values(), settings.spin, v -> settings.spin = v);
         f.note("Backspin = wheel under the ball, hood on top. Topspin = wheel over the ball, hood underneath.");
-        f.check("Air drag + spin curve", settings.airEffects, v -> settings.airEffects = v);
+        f.check("Air drag + spin curve (both turrets)", settings.airEffects, v -> settings.airEffects = v);
         f.note("Distance is measured on the floor from where the ball leaves the shooter to the bottom edge of the opening.");
         return f;
     }
 
     private Form buildBallTab() {
         Form f = new Form();
+        f.note("The BACK turret's ball.");
         f.combo("Ball", ShotPhysics.Ball.values(), settings.ball, v -> {
             settings.ball = v;
             settings.ballMassGrams = v.defaultMassGrams;
@@ -133,8 +157,29 @@ public class TurretSim {
         return f;
     }
 
+    /** The front turret: its own ball and shot. Its distance to the HIVE is the back distance minus the gap. */
+    private Form buildFrontTab() {
+        Form f = new Form();
+        f.number("Gap: front turret in front of back (in)", frontGapIn, 0, 120, 0.5, v -> frontGapIn = v);
+        f.note("The FRONT turret sits this far in front of the BACK turret, toward the HIVE. Its distance to the HIVE is the back distance minus this gap.");
+        f.combo("Ball", ShotPhysics.Ball.values(), frontSettings.ball, v -> {
+            frontSettings.ball = v;
+            frontSettings.ballMassGrams = v.defaultMassGrams;
+            frontMassSpinner.setValue(v.defaultMassGrams);
+        });
+        frontMassSpinner = f.number("Mass (grams)", frontSettings.ballMassGrams, 1, 500, 1, v -> frontSettings.ballMassGrams = v);
+        f.number("Launch angle (deg)  0 = flat, 90 = straight up", frontSettings.launchAngleDeg, 0, 89, 0.5, v -> frontSettings.launchAngleDeg = v);
+        f.number("Launch height (in)", frontSettings.launchHeightIn, 2, 40, 0.5, v -> frontSettings.launchHeightIn = v);
+        f.number("Flywheel speed (RPM)", frontSettings.flywheelRpm, 0, 6000, 25, v -> frontSettings.flywheelRpm = v);
+        f.number("Flywheel diameter (in)", frontSettings.flywheelDiameterIn, 1, 8, 0.1, v -> frontSettings.flywheelDiameterIn = v);
+        f.number("Compression (% of ball diameter)", frontSettings.compressionPct, 0, 60, 1, v -> frontSettings.compressionPct = v);
+        f.combo("Spin", ShotPhysics.Spin.values(), frontSettings.spin, v -> frontSettings.spin = v);
+        return f;
+    }
+
     private Form buildHiveTab() {
         Form f = new Form();
+        f.note("Both turrets shoot at the same HIVE.");
         f.number("Opening bottom height (in)", settings.openingBottomIn, 0, 120, 0.1, v -> settings.openingBottomIn = v);
         f.number("Opening top height (in)", settings.openingTopIn, 0, 130, 0.1, v -> settings.openingTopIn = v);
         f.number("Opening tilt (deg)", settings.openingTiltDeg, -60, 60, 1, v -> settings.openingTiltDeg = v);
@@ -150,7 +195,7 @@ public class TurretSim {
     private Form buildOddsTab() {
         Form f = new Form();
         f.note("No robot shoots exactly the same twice. The sim fires " + PRACTICE_SHOTS
-                + " practice shots, each a bit off by these amounts, and counts how many score AND stay in.");
+                + " practice shots per turret, each a bit off by these amounts, and counts how many score AND stay in.");
         f.number("Flywheel wobble (+/- RPM)", settings.rpmWobble, 0, 1000, 5, v -> settings.rpmWobble = v);
         f.number("Angle wobble (+/- deg)", settings.angleWobbleDeg, 0, 10, 0.1, v -> settings.angleWobbleDeg = v);
         f.number("Distance wobble (+/- in)", settings.distanceWobbleIn, 0, 24, 0.5, v -> settings.distanceWobbleIn = v);
@@ -239,11 +284,19 @@ public class TurretSim {
 
     // ---------- simulation ----------
 
-    /** Re-run the physics whenever a setting changes. */
+    /** Re-run the physics for both turrets whenever a setting changes. */
     private void recalculate() {
-        result = ShotPhysics.simulate(settings);
-        view.setResult(result, ShotPhysics.scoringRpmRanges(settings, ShotView.RPM_BAR_MAX, 25),
-                ShotPhysics.odds(settings, PRACTICE_SHOTS));
+        // The front turret's distance to the HIVE is the back turret's distance minus the gap.
+        // It shares the HIVE, air and wobble settings with the back turret.
+        frontSettings.distanceIn = Math.max(1, settings.distanceIn - frontGapIn);
+        ShotPhysics.copyShared(settings, frontSettings);
+        frontTurret.originXIn = frontGapIn;
+
+        for (ShotView.Turret t : turrets) {
+            t.result = ShotPhysics.simulate(t.settings);
+            t.scoringRanges = ShotPhysics.scoringRpmRanges(t.settings, ShotView.RPM_BAR_MAX, 25);
+            t.odds = ShotPhysics.odds(t.settings, PRACTICE_SHOTS);
+        }
         animTime = -1;
         view.setAnimTime(-1);
         view.repaint();
@@ -258,14 +311,16 @@ public class TurretSim {
         double dt = (now - lastTick) / 1e9;
         lastTick = now;
 
-        // Spin the drawn flywheel at its real speed slowed down 50x, so you can see it turning.
-        flywheelAngle -= settings.flywheelRpm / 60 * 2 * Math.PI * dt / 50;
-        view.setFlywheelAngle(flywheelAngle);
+        // Spin each drawn flywheel at its real speed slowed down 50x, so you can see it turning.
+        for (ShotView.Turret t : turrets) {
+            t.flywheelAngle -= t.settings.flywheelRpm / 60 * 2 * Math.PI * dt / 50;
+        }
 
         if (animTime >= 0) {
             animTime += dt * (slowMotion.isSelected() ? 0.25 : 1);
-            double end = result.path.get(result.path.size() - 1)[0];
-            if (animTime > end + 0.6) animTime = -1;  // hold at the end briefly, then show the final spot
+            // Both balls are shot together. Wait for the longer flight to finish.
+            double end = Math.max(backTurret.endTime(), frontTurret.endTime());
+            if (animTime > end + 0.6) animTime = -1;  // hold at the end briefly, then show the final spots
             view.setAnimTime(animTime < 0 ? -1 : Math.min(animTime, end));
         }
         view.repaint();

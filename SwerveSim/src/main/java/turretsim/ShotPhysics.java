@@ -332,6 +332,14 @@ public class ShotPhysics {
         return ranges;
     }
 
+    /** Copies the settings BOTH turrets share (the HIVE, the air and the wobble) from one turret to another. */
+    public static void copyShared(Settings from, Settings to) {
+        to.airEffects = from.airEffects;
+        to.openingBottomIn = from.openingBottomIn; to.openingTopIn = from.openingTopIn; to.openingTiltDeg = from.openingTiltDeg;
+        to.cellDepthIn = from.cellDepthIn; to.hiveBottomIn = from.hiveBottomIn; to.bounciness = from.bounciness;
+        to.rpmWobble = from.rpmWobble; to.angleWobbleDeg = from.angleWobbleDeg; to.distanceWobbleIn = from.distanceWobbleIn;
+    }
+
     private static Settings copy(Settings s) {
         Settings c = new Settings();
         c.ball = s.ball; c.ballMassGrams = s.ballMassGrams;

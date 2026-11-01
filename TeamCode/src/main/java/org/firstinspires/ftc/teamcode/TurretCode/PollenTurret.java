@@ -93,21 +93,21 @@ public class PollenTurret {
 
     // ======================= SHOT TABLE =======================
 
-    // {distance in, hood angle deg, flywheel RPM} - from TurretSim (Pollen, 0.64 bounciness, 14 in launch
-    // height, 4 in flywheel, wobble +/-75 RPM, +/-1 deg, +/-3 in). The % is the sim's chance to stay in.
+    // {distance in, hood angle deg, flywheel RPM} - from TurretSim (Pollen, 0.64 bounciness, 12 in launch
+    // height (front turret), 4 in flywheel, wobble +/-75 RPM, +/-1 deg, +/-3 in). The % is the sim's chance to stay in (100 practice shots).
     // TUNE: these are a STARTING POINT. Use TurretTestTeleOp's manual mode: park at each distance,
     // adjust RPM + hood until shots stay in, and write the real numbers here.
     // Keep the rows sorted by distance. Between rows the code blends the two nearest rows.
     public static double[][] SHOT_TABLE = {
-            { 36, 65.0, 2500},   // 90%
-            { 48, 65.0, 2600},   // 88%
-            { 60, 47.5, 3050},   // 92%
-            { 72, 40.0, 3550},   // 93%
-            { 84, 32.5, 4300},   // 91%
-            { 96, 30.0, 4500},   // 87%
-            {108, 30.0, 4300},   // 74%
-            {120, 30.0, 4250},   // 54%
-            {132, 27.5, 4550},   // 36% - this far out, drive closer!
+            { 36, 65.0, 2550},   // 89%
+            { 48, 64.0, 2650},   // 89%
+            { 60, 47.5, 3150},   // 91%
+            { 72, 40.5, 3625},   // 93%
+            { 84, 35.0, 4050},   // 91%
+            { 96, 31.0, 4475},   // 89%
+            {108, 30.5, 4300},   // 77%
+            {120, 30.0, 4375},   // 61%
+            {132, 26.0, 4900},   // 43% - this far out, drive closer!
     };
 
     // ======================= state =======================

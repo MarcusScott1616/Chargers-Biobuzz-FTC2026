@@ -94,20 +94,20 @@ public class NectarTurret {
     // ======================= SHOT TABLE =======================
 
     // {distance in, hood angle deg, flywheel RPM} - from TurretSim (Nectar, 0.64 bounciness, 14 in launch
-    // height, 4 in flywheel, wobble +/-75 RPM, +/-1 deg, +/-3 in). The % is the sim's chance to stay in.
+    // height (back turret), 4 in flywheel, wobble +/-75 RPM, +/-1 deg, +/-3 in). The % is the sim's chance to stay in (100 practice shots).
     // TUNE: these are a STARTING POINT. Use TurretTestTeleOp's manual mode: park at each distance,
     // adjust RPM + hood until shots stay in, and write the real numbers here.
     // Keep the rows sorted by distance. Between rows the code blends the two nearest rows.
     public static double[][] SHOT_TABLE = {
-            { 36, 65.0, 2500},   // 87%
-            { 48, 52.5, 2900},   // 83%
+            { 36, 64.5, 2500},   // 88%
+            { 48, 53.0, 2850},   // 88%
             { 60, 47.5, 3050},   // 90%
-            { 72, 37.5, 3900},   // 89%
-            { 84, 35.0, 3900},   // 88%
+            { 72, 40.5, 3525},   // 91%
+            { 84, 34.5, 4025},   // 90%
             { 96, 32.5, 4150},   // 82%
-            {108, 32.5, 4050},   // 63%
+            {108, 31.5, 4175},   // 65%
             {120, 30.0, 4300},   // 46%
-            {132, 27.5, 4600},   // 25% - this far out, drive closer!
+            {132, 28.0, 4525},   // 27% - this far out, drive closer!
     };
 
     // ======================= state =======================
