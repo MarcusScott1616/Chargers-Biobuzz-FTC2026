@@ -42,6 +42,15 @@ public class HuskyTest extends OpMode {
         HuskyLens.Block[] blocks = camera.getBlocks();
         telemetry.addLine(name + ": " + blocks.length + " seen");
 
+        // Which cluster (blue 1, blue 2, red 1, red 2) is in view, based on TagClusters.CLUSTERS.
+        TagClusters.Result cluster = TagClusters.identify(blocks);
+        if (cluster.name == null) {
+            telemetry.addLine("  Cluster: none");
+        } else {
+            telemetry.addLine(String.format("  Cluster: %s (%d of %d tags, %d%%)",
+                    cluster.name, cluster.tagsFound, cluster.tagsInCluster, cluster.percentFound()));
+        }
+
         for (HuskyLens.Block b : blocks) {
             telemetry.addLine(String.format("  ID %d   tx %+.1f   ty %+.1f   %dx%d px",
                     b.id,

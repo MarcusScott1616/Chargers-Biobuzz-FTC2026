@@ -7,6 +7,7 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
  * Turret Test - try out NectarTurret and PollenTurret, tune them, and build the shot tables.
  *
  * GAMEPAD 1
+ *   Before PLAY:   X = BLUE alliance, A = RED alliance (only that alliance's clusters are used)
  *   X              pick which turret the other buttons change (Nectar <-> Pollen)
  *   Left bumper    Nectar flywheel on/off
  *   Right bumper   Pollen flywheel on/off
@@ -41,6 +42,9 @@ public class TurretTestTeleOp extends OpMode {
 
     private TagCamera stationary, turretCam;   // the two HuskyLenses (see the notes above)
 
+    // Which alliance we are on: "blue" or "red". Chosen during init (see init_loop). null until picked.
+    private String alliance = null;
+
     @Override
     public void init() {
         stationary = TagCamera.init(hardwareMap, "stationaryHusky");
@@ -49,7 +53,18 @@ public class TurretTestTeleOp extends OpMode {
         nectar.init(hardwareMap, stationary, turretCam);
         pollen.init(hardwareMap, stationary, null);   // no aim camera for Pollen
 
-        telemetry.addLine("Turrets ready. Press PLAY.");
+        telemetry.addLine("Turrets ready. Choose alliance: X = BLUE, A = RED");
+    }
+
+    /** Runs repeatedly before PLAY. Press X for blue or A for red. */
+    @Override
+    public void init_loop() {
+        if (gamepad1.x) alliance = "blue";
+        if (gamepad1.a) alliance = "red";
+
+        telemetry.addData("Alliance", alliance == null ? "NOT SET (press X=blue or A=red)" : alliance.toUpperCase());
+        telemetry.addLine("Press PLAY when ready.");
+        telemetry.update();
     }
 
     @Override
@@ -70,6 +85,12 @@ public class TurretTestTeleOp extends OpMode {
 
         // ----- screen -----
         telemetry.addData("Buttons change", tuningNectar ? "NECTAR (press X for Pollen)" : "POLLEN (press X for Nectar)");
+
+        // Cluster the turret camera sees, counting only OUR alliance's clusters (see TagClusters).
+        TagClusters.Result cluster = TagClusters.identify(turretCam.getBlocks(), alliance);
+        telemetry.addData("Alliance", alliance == null ? "NOT SET" : alliance.toUpperCase());
+        telemetry.addData("Our cluster in view", cluster.name == null ? "none"
+                : String.format("%s (%d%% of tags)", cluster.name, cluster.percentFound()));
         telemetry.addLine();
         telemetry.addLine("=== NECTAR ===  " + (nectar.isManualMode() ? "MANUAL" : "AUTO") + (nectar.readyToShoot() ? "   READY TO SHOOT" : ""));
         telemetry.addData("Tag seen", nectar.isTagVisible());

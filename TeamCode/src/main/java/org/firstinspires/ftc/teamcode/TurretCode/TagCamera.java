@@ -1,7 +1,12 @@
 package org.firstinspires.ftc.teamcode.TurretCode;
 
 import com.qualcomm.hardware.dfrobot.HuskyLens;
+import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
+
+import org.firstinspires.ftc.vision.VisionPortal;
+import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
+import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 /*
  * TagCamera - one HuskyLens in AprilTag mode, plus the math that turns a tag's
@@ -15,6 +20,8 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
  */
 public class TagCamera {
 
+    private final String DESIRED_CLUSTER_NAME = null;
+
     public static final double CENTER_X = 160;
     public static final double CENTER_Y = 120;
 
@@ -23,6 +30,35 @@ public class TagCamera {
     // adjust until the angle printed by HuskyTest matches.
     public static double DEG_PER_PIXEL_X = 0.2;
     public static double DEG_PER_PIXEL_Y = 0.2;
+
+
+
+    final double DESIRED_DISTANCE = 30.0; //  this is how close the camera should get to the target (inches)
+
+    //  Set the GAIN constants to control the relationship between the measured position error, and how much power is
+    //  applied to the drive motors to correct the error.
+    //  Drive = Error * Gain    Make these values smaller for smoother control, or larger for a more aggressive response.
+    final double SPEED_GAIN =   0.02 ;   //  Speed Control "Gain". e.g. Ramp up to 50% power at a 25 inch error.   (0.50 / 25.0)
+    final double TURN_GAIN  =   0.01 ;   //  Turn Control "Gain".  e.g. Ramp up to 25% power at a 25 degree error. (0.25 / 25.0)
+
+    final double MAX_AUTO_SPEED = 0.5;   //  Clip the approach speed to this max value (adjust for your robot)
+    final double MAX_AUTO_TURN  = 0.25;  //  Clip the turn speed to this max value (adjust for your robot)
+
+    private DcMotor leftDrive   = null;  //  Used to control the left drive wheel
+    private DcMotor rightDrive  = null;  //  Used to control the right drive wheel
+
+    private final boolean USE_WEBCAM = true;  // Set true to use a webcam, or false for a phone camera
+    private final int DESIRED_TAG_ID = -1;    // The tag you want to approach, or set to -1 for ANY tag.
+
+    private VisionPortal visionPortal;               // Used to manage the video source.
+    private AprilTagProcessor aprilTag;              // Used for managing the AprilTag detection process.
+
+    private boolean targetFound  = false;    // Set to true when an AprilTag/Cluster target is detected
+    private String targetName    = "none";
+    private int    targetID      = 0;
+    private double targetRange   = 0;
+    private double targetBearing = 0;
+    private double targetYaw     = 0;
 
     /** One tag seen this loop, with its position as angles from the center of the picture. */
     public static class Tag {
