@@ -8,8 +8,8 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  * TurretAutoLogic - the FEEDING sequence for both turrets:
  *   wait until the turrets are ready -> feed one ball -> pause -> repeat until out of shots.
  *
- * It does NOT aim, set the hood, or spin the flywheels. NectarTurret and PollenTurret do all of that
- * (they own the flywheel motors). The autonomous tells us when they're ready, using
+ * It does NOT aim, set the hood, or spin the flywheels. Turret.java does all of that
+ * (it owns the flywheel motors). The autonomous tells us when they're ready, using
  * update(turretsReady), and we only run the index motor.
  *
  * Hardware (names must match the Driver Station configuration):
@@ -21,7 +21,9 @@ public class TurretAutoLogic {
     private static final double SPIN_UP_MAX_SECONDS = 2.0;
     private static final double INDEX_POWER = 0.5;     // index motor power while feeding a ball
     private static final double INDEX_SECONDS = 0.5;   // how long to feed one ball
-    private static final double RESET_SECONDS = 2.0;   // pause after each ball before the next one
+    // TUNE: pause after each ball before the next one. Keep this short for faster volleys;
+    // raise it if balls jam because the flywheel hasn't recovered speed yet.
+    private static final double RESET_SECONDS = 0.75;
 
     public enum FeedState {
         IDLE,      // waiting for fireShots()
@@ -43,7 +45,7 @@ public class TurretAutoLogic {
 
     /**
      * Call once every loop. Moves the feeding state machine along.
-     * @param turretsReady true when both turrets are at speed and aimed (from NectarTurret/PollenTurret.readyToShoot())
+     * @param turretsReady true when both turrets are at speed and aimed (from Turret.readyToShoot())
      */
     public void update(boolean turretsReady) {
         switch (feedState) {

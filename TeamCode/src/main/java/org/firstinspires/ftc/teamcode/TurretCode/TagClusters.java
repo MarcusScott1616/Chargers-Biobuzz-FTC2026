@@ -16,11 +16,15 @@ import com.qualcomm.hardware.dfrobot.HuskyLens;
  *   if (r.name != null) { ... r.name is "blue 1", "blue 2", "red 1" or "red 2" ... }
  *
  * SETUP: Put the real tag IDs in CLUSTERS below. Every tag ID must belong to only ONE cluster.
+ *        The IDs must match what the HuskyLens reports (see HuskyTest). If you used
+ *        "Learn Multiple", the IDs are assigned in training order (1, 2, 3, ...), NOT the
+ *        printed AprilTag number. Train the tags in cluster order so the IDs line up.
  */
 public class TagClusters {
 
     // TUNE: the tag IDs in each cluster. These numbers are placeholders - change them to the
-    // IDs you print on the tags. Each cluster can have as many tags as you like.
+    // IDs your HuskyLens reports (run HuskyTest to check). Each cluster can have as many tags
+    // as you like.
     public static final Cluster[] CLUSTERS = {
             new Cluster("blue 1", 1, 2, 3),
             new Cluster("blue 2", 4, 5, 6),
@@ -46,11 +50,13 @@ public class TagClusters {
     /** What the camera sees this loop. name is null when no cluster was found. */
     public static class Result {
         public final String name;       // "blue 1", "red 2", ... or null
+        public final int[] tagIds;      // the tag IDs of the winning cluster (empty if no match)
         public final int tagsFound;     // how many tags of that cluster are visible
         public final int tagsInCluster; // how many tags that cluster has in total
 
-        Result(String name, int tagsFound, int tagsInCluster) {
+        Result(String name, int[] tagIds, int tagsFound, int tagsInCluster) {
             this.name = name;
+            this.tagIds = tagIds;
             this.tagsFound = tagsFound;
             this.tagsInCluster = tagsInCluster;
         }
@@ -74,6 +80,7 @@ public class TagClusters {
      */
     public static Result identify(HuskyLens.Block[] blocks, String alliance) {
         String bestName = null;
+        int[] bestTagIds = new int[0];
         int bestFound = 0;
         int bestTotal = 0;
 
@@ -91,13 +98,14 @@ public class TagClusters {
                 bestFound = found;
                 bestTotal = cluster.tagIds.length;
                 bestName = cluster.name;
+                bestTagIds = cluster.tagIds;
             }
         }
 
         if (bestFound < MIN_TAGS_TO_MATCH) {
-            return new Result(null, 0, 0);     // no cluster in view
+            return new Result(null, new int[0], 0, 0);     // no cluster in view
         }
-        return new Result(bestName, bestFound, bestTotal);
+        return new Result(bestName, bestTagIds, bestFound, bestTotal);
     }
 
     /** True if a block with this tag ID is in the list. */

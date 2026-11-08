@@ -1,64 +1,28 @@
 package org.firstinspires.ftc.teamcode.TurretCode;
 
 import com.qualcomm.hardware.dfrobot.HuskyLens;
-import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
-
-import org.firstinspires.ftc.vision.VisionPortal;
-import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
-import org.firstinspires.ftc.vision.apriltag.AprilTagProcessor;
 
 /*
  * TagCamera - one HuskyLens in AprilTag mode, plus the math that turns a tag's
  * pixel position into angles (the Limelight used to give these angles directly).
  *
- * Call update() ONCE per loop, then findTag() as many times as you like. The HuskyLens is
- * slow to read over I2C, so this keeps it to one read per camera per loop, even when two
- * turrets share the same camera.
+ * Call update() ONCE per loop, then findTag() / findFirstTag() as many times as you like.
+ * The HuskyLens is slow to read over I2C, so this keeps it to one read per camera per
+ * loop, even when two turrets share the same camera.
  *
  * The HuskyLens picture is 320 x 240 pixels. Center = (160, 120).
  */
 public class TagCamera {
 
-    private final String DESIRED_CLUSTER_NAME = null;
-
     public static final double CENTER_X = 160;
     public static final double CENTER_Y = 120;
 
-    // TUNE: degrees per pixel. These are a rough guess (about 64 degrees across 320 px and
-    // 48 degrees across 240 px). Calibrate: put a tag at a known angle from the camera and
-    // adjust until the angle printed by HuskyTest matches.
-    public static double DEG_PER_PIXEL_X = 0.2;
-    public static double DEG_PER_PIXEL_Y = 0.2;
-
-
-
-    final double DESIRED_DISTANCE = 30.0; //  this is how close the camera should get to the target (inches)
-
-    //  Set the GAIN constants to control the relationship between the measured position error, and how much power is
-    //  applied to the drive motors to correct the error.
-    //  Drive = Error * Gain    Make these values smaller for smoother control, or larger for a more aggressive response.
-    final double SPEED_GAIN =   0.02 ;   //  Speed Control "Gain". e.g. Ramp up to 50% power at a 25 inch error.   (0.50 / 25.0)
-    final double TURN_GAIN  =   0.01 ;   //  Turn Control "Gain".  e.g. Ramp up to 25% power at a 25 degree error. (0.25 / 25.0)
-
-    final double MAX_AUTO_SPEED = 0.5;   //  Clip the approach speed to this max value (adjust for your robot)
-    final double MAX_AUTO_TURN  = 0.25;  //  Clip the turn speed to this max value (adjust for your robot)
-
-    private DcMotor leftDrive   = null;  //  Used to control the left drive wheel
-    private DcMotor rightDrive  = null;  //  Used to control the right drive wheel
-
-    private final boolean USE_WEBCAM = true;  // Set true to use a webcam, or false for a phone camera
-    private final int DESIRED_TAG_ID = -1;    // The tag you want to approach, or set to -1 for ANY tag.
-
-    private VisionPortal visionPortal;               // Used to manage the video source.
-    private AprilTagProcessor aprilTag;              // Used for managing the AprilTag detection process.
-
-    private boolean targetFound  = false;    // Set to true when an AprilTag/Cluster target is detected
-    private String targetName    = "none";
-    private int    targetID      = 0;
-    private double targetRange   = 0;
-    private double targetBearing = 0;
-    private double targetYaw     = 0;
+    // TUNE: degrees per pixel. The HuskyLens FOV is roughly 35 deg horizontal x 25 deg vertical.
+    // Calibrate: put a tag at a known angle from the camera and adjust until the angle
+    // printed by HuskyTest matches.
+    public static double DEG_PER_PIXEL_X = 35.0 / 320;   // ~0.109
+    public static double DEG_PER_PIXEL_Y = 25.0 / 240;   // ~0.104
 
     /** One tag seen this loop, with its position as angles from the center of the picture. */
     public static class Tag {
@@ -84,9 +48,15 @@ public class TagCamera {
         this.husky = husky;
     }
 
-    /** Find the HuskyLens named configName in the robot configuration and switch it to AprilTag mode. */
+    /**
+     * Find the HuskyLens named configName in the robot configuration and switch it to
+     * AprilTag mode. Throws a RuntimeException if the camera doesn't respond (loose cable, etc.).
+     */
     public static TagCamera init(HardwareMap hardwareMap, String configName) {
         HuskyLens husky = hardwareMap.get(HuskyLens.class, configName);
+        if (!husky.knock()) {
+            throw new RuntimeException("HuskyLens '" + configName + "' not responding! Check the I2C cable.");
+        }
         husky.selectAlgorithm(HuskyLens.Algorithm.TAG_RECOGNITION);
         return new TagCamera(husky);
     }
@@ -105,6 +75,20 @@ public class TagCamera {
     public Tag findTag(int id) {
         for (HuskyLens.Block block : blocks) {
             if (block.id == id) return new Tag(block);
+        }
+        return null;
+    }
+
+    /**
+     * The first tag from the given list of IDs that is visible, or null if none are.
+     * Use this for cluster-based lookups: pass the cluster's tag ID array and get back
+     * whichever tag from that cluster the camera can actually see.
+     */
+    public Tag findFirstTag(int[] ids) {
+        for (int id : ids) {
+            for (HuskyLens.Block block : blocks) {
+                if (block.id == id) return new Tag(block);
+            }
         }
         return null;
     }

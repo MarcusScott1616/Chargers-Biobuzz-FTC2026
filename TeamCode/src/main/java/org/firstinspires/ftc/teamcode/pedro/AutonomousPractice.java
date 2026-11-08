@@ -11,8 +11,7 @@ import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
-import org.firstinspires.ftc.teamcode.TurretCode.NectarTurret;
-import org.firstinspires.ftc.teamcode.TurretCode.PollenTurret;
+import org.firstinspires.ftc.teamcode.TurretCode.Turret;
 import org.firstinspires.ftc.teamcode.TurretCode.TagCamera;
 import org.firstinspires.ftc.teamcode.TurretCode.TurretAutoLogic;
 
@@ -39,9 +38,15 @@ import static com.pedropathing.api.Paths.line;
  * Every loop() also updates the cameras and both turrets, so they keep aiming while the robot drives.
  *
  * Coordinates are in inches, heading in degrees (PoseFactory.degrees()).
+ *
+ * ALLIANCE: Set ALLIANCE below to "red" or "blue" to match the side you're starting on.
+ *           The turrets will only aim at that alliance's tag clusters.
  */
 @Autonomous
 public class AutonomousPractice extends OpMode {
+
+    // ---------- TUNE: alliance (change this to "blue" for the other side) ----------
+    private static final String ALLIANCE = "red";
 
     // ---------- TUNE: timing and hardware values (measure these on the robot) ----------
     private static final double AIM_MAX_SECONDS = 3.0;   // stop waiting for the turrets after this long, then shoot anyway
@@ -73,8 +78,8 @@ public class AutonomousPractice extends OpMode {
 
     // ---------- hardware ----------
     private TagCamera stationaryCam, turretCam;             // stationary = distance, turret = aim
-    private final NectarTurret nectar = new NectarTurret();
-    private final PollenTurret pollen = new PollenTurret();
+    private final Turret nectar = Turret.nectar();
+    private final Turret pollen = Turret.pollen();
     private final TurretAutoLogic feeder = new TurretAutoLogic();
     private DcMotor intakeMotor;                             // goBILDA motor on the intake
     private Servo rampServo;                                 // lowers/raises the ramp for flowers
@@ -122,6 +127,9 @@ public class AutonomousPractice extends OpMode {
         intakeMotor = hardwareMap.get(DcMotor.class, "intakeMotor");
         rampServo = hardwareMap.get(Servo.class, "rampServo");
         rampServo.setPosition(RAMP_UP_POSITION);
+
+        telemetry.addData("Alliance", ALLIANCE.toUpperCase());
+        telemetry.addLine("Autonomous ready.");
     }
 
     @Override
@@ -135,8 +143,8 @@ public class AutonomousPractice extends OpMode {
         follower.update();
         stationaryCam.update();
         turretCam.update();
-        nectar.update();
-        pollen.update();
+        nectar.update(ALLIANCE);
+        pollen.update(ALLIANCE);
         feeder.update(turretsReady());
 
         switch (state) {
@@ -204,11 +212,13 @@ public class AutonomousPractice extends OpMode {
                 break;
         }
 
+        telemetry.addData("Alliance", ALLIANCE.toUpperCase());
         telemetry.addData("State", state);
         telemetry.addData("X", "%.1f", follower.pose().x());
         telemetry.addData("Y", "%.1f", follower.pose().y());
         telemetry.addData("Heading (deg)", "%.1f", Math.toDegrees(follower.pose().heading()));
         telemetry.addData("Following", follower.isBusy());
+        telemetry.addData("Nectar cluster", nectar.getClusterName() == null ? "none" : nectar.getClusterName());
         telemetry.addData("Nectar ready", nectar.readyToShoot());
         telemetry.addData("Pollen ready", pollen.readyToShoot());
         telemetry.addData("Nectar aim error (deg)", "%.1f", nectar.getAimErrorDeg());
