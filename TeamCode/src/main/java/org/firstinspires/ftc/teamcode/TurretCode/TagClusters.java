@@ -26,10 +26,10 @@ public class TagClusters {
     // IDs your HuskyLens reports (run HuskyTest to check). Each cluster can have as many tags
     // as you like.
     public static final Cluster[] CLUSTERS = {
-            new Cluster("blue 1", 1, 2, 3),
-            new Cluster("blue 2", 4, 5, 6),
-            new Cluster("red 1",  7, 8, 9),
-            new Cluster("red 2",  10, 11, 12),
+            new Cluster("blue 1", 1, 2, 3, 4),
+            new Cluster("blue 2",  5, 6, 7, 8),
+            new Cluster("red 1",    9, 10, 11, 12),
+            new Cluster("red 2",  13, 14, 15, 16),
     };
 
     // TUNE: how many tags from a cluster must be visible before we call it "found".
