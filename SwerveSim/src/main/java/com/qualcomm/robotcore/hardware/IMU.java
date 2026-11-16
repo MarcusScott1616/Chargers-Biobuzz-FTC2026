@@ -6,7 +6,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 
 /*
  * FAKE IMU (gyro) for SwerveSim. The simulator tells it which way the robot is
- * facing, and SwerveDrive reads it back as yaw - just like the real gyro.
+ * facing, and SwerveDriveV2 reads it back as yaw - just like the real gyro.
  * Yaw is counter-clockwise positive, same as the real FTC IMU.
  */
 public class IMU {

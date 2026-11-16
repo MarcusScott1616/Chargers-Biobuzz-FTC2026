@@ -1,63 +1,128 @@
+
 package org.firstinspires.ftc.teamcode.SwerveCode;
+
+import static org.firstinspires.ftc.robotcore.external.BlocksOpModeCompanion.gamepad1;
+import static org.firstinspires.ftc.robotcore.external.BlocksOpModeCompanion.hardwareMap;
+import static org.firstinspires.ftc.robotcore.external.BlocksOpModeCompanion.telemetry;
 
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
-import com.qualcomm.robotcore.hardware.ServoImplEx;
+import com.qualcomm.robotcore.hardware.DcMotor;
 
-@TeleOp
+/*
+ * Swerve Diagnostic - test each drive motor, continuous steering servo,
+ * and REV Through-Bore encoder (connected to Control Hub motor encoder ports).
+ *
+ * GAMEPAD 1
+ *   D-pad up      run RED drive motor
+ *   D-pad right   run BLUE drive motor
+ *   D-pad left    run GREEN drive motor
+ *   D-pad down    run YELLOW drive motor
+ *
+ *   Left bumper   PID steer all pods to 0 deg (straight ahead)
+ *   Right bumper  PID steer all pods to +90 deg (facing right)
+ *   X button      PID steer all pods to -90 deg (facing left)
+ *   Y button      PID steer all pods to 180 deg (facing back)
+ *   A button      Re-zero all pod encoders (set current position as 0 deg)
+ *
+ *   Right Trigger Manual jog all steering servos CW / right (bypasses PID)
+ *   Left Trigger  Manual jog all steering servos CCW / left (bypasses PID)
+ *
+ * Telemetry displays raw encoder ticks and angles for offset calibration.
+ */
+@TeleOp(name = "Swerve Diagnostic")
 public class SwerveDiagnostic extends OpMode {
 
-    private SwerveDrive swerve = new SwerveDrive();
+    private static final double TEST_POWER = 0.4; // test power for drive motors
+
+    private SwerveDriveV2 swerve;
+    private SwerveDriveV2.Module[] modules;
 
     @Override
-    public void init(){
+    public void init() {
+        swerve = new SwerveDriveV2();
         swerve.init(hardwareMap);
+        modules = swerve.getModules();
 
-        telemetry.addLine("Diagnostic Mode.");
-        telemetry.addLine("D-Pad UP:        Test RED motor");
-        telemetry.addLine("D-Pad Right:     Test BLUE motor");
-        telemetry.addLine("D-Pad Left:      Test GREEN motor");
-        telemetry.addLine("D-Pad Down:      Test YELLOW motor");
-        telemetry.addLine("Bumper Left:     Center Servos (90 deg)");
-        telemetry.addLine("Bumper Right:    Zero Servos (0 deg)");
+        telemetry.addLine("Swerve Diagnostic ready.");
+        telemetry.addLine("D-pad: test drive motors (up=RED, right=BLUE, left=GREEN, down=YLW)");
+        telemetry.addLine("Bumpers/Buttons: test steering PID (LB=0°, RB=90°, X=-90°, Y=180°)");
+        telemetry.addLine("Triggers: direct manual servo jog (RT=CW, LT=CCW)");
+        telemetry.addLine("A button: re-zero encoders (align pods forward first)");
         telemetry.update();
     }
+
     @Override
-    public void loop(){
-        //test the individual drive motor directions
-        double redPow     =gamepad1.dpad_up      ? 0.3 : 0.0;
-        double bluePow    =gamepad1.dpad_right   ? 0.3 : 0.0;
-        double greenPow   =gamepad1.dpad_left    ? 0.3 : 0.0;
-        double yellowPow  =gamepad1.dpad_down    ? 0.3 : 0.0;
-
-        double servoPos = 0.5;
-
-
-
-        if(gamepad1.left_bumper){
-         servoPos = 0.5; //center / 90 degrees
-        } else if (gamepad1.right_bumper){
-            servoPos=0.0;
+    public void loop() {
+        // Zero all encoders if A button is pressed
+        if (gamepad1.a) {
+            swerve.resetEncoders();
         }
 
-        for (ServoImplEx servo : swerve.servoList){
-            servo.setPosition(servoPos);
+        // ==================== 1. DRIVE MOTORS MANUAL TEST ====================
+        // Control each module's drive motor directly without interference
+        modules[0].motor.setPower(gamepad1.dpad_up ? TEST_POWER : 0);
+        modules[1].motor.setPower(gamepad1.dpad_right ? TEST_POWER : 0);
+        modules[2].motor.setPower(gamepad1.dpad_left ? TEST_POWER : 0);
+        modules[3].motor.setPower(gamepad1.dpad_down ? TEST_POWER : 0);
+
+        // ==================== 2. STEERING SERVOS TEST ====================
+        // Check for manual open-loop trigger jog first
+        double manualJog = gamepad1.right_trigger - gamepad1.left_trigger;
+
+        if (Math.abs(manualJog) > 0.05) {
+            // Direct open-loop test: drives the CR servos directly with trigger input
+            double jogPower = manualJog * 0.6; // scale to 60% max for safety
+            for (SwerveDriveV2.Module m : modules) {
+                m.setDirectServoPower(jogPower);
+            }
+        } else {
+            // Steering PID test targets
+            Double targetRad = null;
+            if (gamepad1.left_bumper) {
+                targetRad = Math.toRadians(0);
+            } else if (gamepad1.right_bumper) {
+                targetRad = Math.toRadians(90);
+            } else if (gamepad1.x) {
+                targetRad = Math.toRadians(-90);
+            } else if (gamepad1.y) {
+                targetRad = Math.toRadians(180);
+            }
+
+            if (targetRad != null) {
+                for (SwerveDriveV2.Module m : modules) {
+                    m.updateSteering(targetRad);
+                }
+            } else {
+                // Disable PWM so steering servos are completely limp and can be turned freely by hand
+                for (SwerveDriveV2.Module m : modules) {
+                    m.disablePwm();
+                }
+            }
         }
-        //directly command individual motors to spin for testing
-        swerve.move(
-                (float) (bluePow + redPow),   //strafeX power feed
-                (float) (greenPow + yellowPow), //strafe Y power feed
-                0.0f                              //no rotation
-        );
-        telemetry.addData("Red Power", redPow);
-        telemetry.addData("Blue Power", bluePow);
-        telemetry.addData("Green Power", greenPow);
-        telemetry.addData("Yellow Power", yellowPow);
+
+        // ==================== 3. TELEMETRY ====================
+        telemetry.addLine("=== POD ENCODERS & SERVOS ===");
+        for (SwerveDriveV2.Module m : modules) {
+            telemetry.addData(m.name.toUpperCase(),
+                    String.format("Ticks: %6d | Angle: %6.1f° (Raw: %6.1f°) | ServoPwr: %+.2f",
+                            m.getTicks(),
+                            m.getCurrentAngleDeg(),
+                            Math.toDegrees(m.getRawAngleRad()),
+                            m.getServoPower()));
+        }
+
+        telemetry.addLine("=== DRIVE MOTORS ===");
+        telemetry.addData("Red", gamepad1.dpad_up ? "RUNNING" : "off");
+        telemetry.addData("Blue", gamepad1.dpad_right ? "RUNNING" : "off");
+        telemetry.addData("Green", gamepad1.dpad_left ? "RUNNING" : "off");
+        telemetry.addData("Yellow", gamepad1.dpad_down ? "RUNNING" : "off");
         telemetry.update();
-// HELLO
     }
 
-
-
+    @Override
+    public void stop() {
+        swerve.stop();
+    }
 }
 

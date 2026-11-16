@@ -2,9 +2,9 @@ package com.qualcomm.robotcore.hardware;
 
 /*
  * FAKE drive motor for SwerveSim. It doesn't spin anything - it just remembers
- * what SwerveDrive told it so the simulator can read it back.
+ * what SwerveDriveV2 told it so the simulator can read it back.
  *
- * If SwerveDrive starts using a motor method that isn't here, the sim won't compile.
+ * If SwerveDriveV2 starts using a motor method that isn't here, the sim won't compile.
  * Fix: add that method below (it usually only needs to store or return a value).
  */
 public class DcMotor {
@@ -20,6 +20,7 @@ public class DcMotor {
     private RunMode mode = RunMode.RUN_WITHOUT_ENCODER;
     private double power = 0;
     private int targetPosition = 0;
+    private int currentPosition = 0;
 
     public void setDirection(Direction direction) { this.direction = direction; }
     public Direction getDirection() { return direction; }
@@ -27,7 +28,12 @@ public class DcMotor {
     public void setZeroPowerBehavior(ZeroPowerBehavior behavior) { this.zeroPowerBehavior = behavior; }
     public ZeroPowerBehavior getZeroPowerBehavior() { return zeroPowerBehavior; }
 
-    public void setMode(RunMode mode) { this.mode = mode; }
+    public void setMode(RunMode mode) {
+        this.mode = mode;
+        if (mode == RunMode.STOP_AND_RESET_ENCODER) {
+            this.currentPosition = 0;
+        }
+    }
     public RunMode getMode() { return mode; }
 
     // Like the real motor, power is limited to -1..1.
@@ -36,4 +42,7 @@ public class DcMotor {
 
     public void setTargetPosition(int position) { this.targetPosition = position; }
     public int getTargetPosition() { return targetPosition; }
+
+    public int getCurrentPosition() { return currentPosition; }
+    public void setCurrentPosition(int position) { this.currentPosition = position; }
 }

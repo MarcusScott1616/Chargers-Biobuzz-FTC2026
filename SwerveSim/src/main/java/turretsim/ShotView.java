@@ -15,45 +15,62 @@ import java.awt.geom.Rectangle2D;
 import java.util.List;
 
 /*
- * Draws the shot from the side: shooter on the left, HIVE on the right.
+ * Draws the shots from the side: shooters on the left, HIVE on the right.
  * Like SwerveSim's FieldView, we draw in INCHES with +z (height) pointing up the screen.
+ *
+ * The robot has two turrets, and both balls fly at the same time. Each turret is drawn at its
+ * own spot along the floor (its "origin"), with its own ball color. The back turret is at x = 0.
  */
 public class ShotView extends JPanel {
     public static final double RPM_BAR_MAX = 6000;
 
-    private final ShotPhysics.Settings settings;
-    private ShotPhysics.Result result;
-    private List<double[]> scoringRanges;
-    private ShotPhysics.Odds odds;
-    private double animTime = -1;      // -1 = not animating, show the ball at the end of the shot
-    private double flywheelAngle = 0;
+    /** One turret on the robot: its settings, where it sits, and the results TurretSim worked out for it. */
+    public static class Turret {
+        public final ShotPhysics.Settings settings;
+        public double originXIn;                 // where its launch point sits along the floor (0 = back turret)
+        public ShotPhysics.Result result;
+        public List<double[]> scoringRanges;
+        public ShotPhysics.Odds odds;
+        public double flywheelAngle;             // where the drawn flywheel is in its spin
 
-    public ShotView(ShotPhysics.Settings settings) {
-        this.settings = settings;
+        public Turret(ShotPhysics.Settings settings, double originXIn) {
+            this.settings = settings;
+            this.originXIn = originXIn;
+        }
+
+        /** When this turret's ball finishes its flight, in seconds. */
+        public double endTime() { return result.path.get(result.path.size() - 1)[0]; }
+    }
+
+    private final List<Turret> turrets;     // index 0 = back turret, 1 = front turret
+    private double animTime = -1;           // -1 = not animating, show each ball at the end of its shot
+
+    public ShotView(List<Turret> turrets) {
+        this.turrets = turrets;
         setBackground(new Color(30, 32, 40));
     }
 
-    public void setResult(ShotPhysics.Result result, List<double[]> scoringRanges, ShotPhysics.Odds odds) {
-        this.result = result;
-        this.scoringRanges = scoringRanges;
-        this.odds = odds;
-    }
-
     public void setAnimTime(double t) { animTime = t; }
-    public void setFlywheelAngle(double a) { flywheelAngle = a; }
 
     @Override
     protected void paintComponent(Graphics graphics) {
         super.paintComponent(graphics);
-        if (result == null) return;
+        for (Turret t : turrets) if (t.result == null) return;
         Graphics2D g = (Graphics2D) graphics.create();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        // Pick a zoom so the shooter, the HIVE, and the whole flight path fit.
-        double minX = -20, maxX = settings.distanceIn + settings.cellDepthIn + 30;
-        double maxZ = Math.max(settings.openingTopIn + 20, result.apexIn + 10);
-        for (double[] p : result.path) maxX = Math.max(maxX, Math.min(p[1] + 6, settings.distanceIn + 150));
-        int top = 215, bottom = 70, side = 20;
+        // The HIVE is shared, so its position comes from the back turret.
+        ShotPhysics.Settings hive = turrets.get(0).settings;
+
+        // Pick a zoom so both turrets, the HIVE, and every flight path fit.
+        double minX = -20, maxX = hive.distanceIn + hive.cellDepthIn + 30;
+        double maxZ = hive.openingTopIn + 20;
+        for (Turret t : turrets) {
+            maxX = Math.max(maxX, t.originXIn + 30);
+            maxZ = Math.max(maxZ, t.result.apexIn + 10);
+            for (double[] p : t.result.path) maxX = Math.max(maxX, Math.min(p[1] + t.originXIn + 6, hive.distanceIn + 150));
+        }
+        int top = 262, bottom = 125, side = 20;   // top: room for the text. bottom: room for the two RPM bars.
         double scale = Math.min((getWidth() - 2 * side) / (maxX - minX), (getHeight() - top - bottom) / maxZ);
 
         AffineTransform screen = g.getTransform();
@@ -61,15 +78,15 @@ public class ShotView extends JPanel {
         g.scale(scale, -scale);
 
         drawGround(g, minX, maxX);
-        drawHive(g);
-        drawShooter(g);
-        drawOddsDots(g);
-        drawPath(g);
-        drawBall(g);
+        drawHive(g, hive);
+        drawChassis(g);
+        for (Turret t : turrets) drawTurret(g, t);
 
         g.setTransform(screen);
         drawText(g);
-        drawRpmBar(g, side, getHeight() - 45, getWidth() - 2 * side);
+        for (int i = 0; i < turrets.size(); i++) {
+            drawRpmBar(g, turrets.get(i), i, side, getHeight() - 108 + i * 46, getWidth() - 2 * side);
+        }
         g.dispose();
     }
 
@@ -81,8 +98,7 @@ public class ShotView extends JPanel {
         for (double x = 0; x < maxX; x += 24) g.draw(new Line2D.Double(x, -3, x, 0)); // 2 ft tiles
     }
 
-    private void drawHive(Graphics2D g) {
-        ShotPhysics.Settings s = settings;
+    private void drawHive(Graphics2D g, ShotPhysics.Settings s) {
         double tilt = Math.toRadians(s.openingTiltDeg);
         double ux = Math.sin(tilt), uz = Math.cos(tilt);
         double nx = Math.cos(tilt), nz = -Math.sin(tilt);
@@ -129,15 +145,31 @@ public class ShotView extends JPanel {
         g.fill(new Ellipse2D.Double(tx - 0.8, tz - 0.8, 1.6, 1.6));
     }
 
-    private void drawShooter(Graphics2D g) {
-        ShotPhysics.Settings s = settings;
+    /** The robot's chassis: one box under both turrets. */
+    private void drawChassis(Graphics2D g) {
+        double frontX = 0;
+        for (Turret t : turrets) frontX = Math.max(frontX, t.originXIn);
+        double h = turrets.get(0).settings.launchHeightIn;
+        g.setColor(new Color(70, 75, 90));
+        g.fill(new Rectangle2D.Double(-18, 1.5, 18 + frontX + 6, Math.max(3, Math.min(8, h - 4))));
+    }
+
+    /** Draws one turret and its ball, in its own frame (its launch point at x = 0). */
+    private void drawTurret(Graphics2D g, Turret t) {
+        AffineTransform before = g.getTransform();
+        g.translate(t.originXIn, 0);
+        drawShooter(g, t);
+        drawOddsDots(g, t);
+        drawPath(g, t);
+        drawBall(g, t);
+        g.setTransform(before);
+    }
+
+    private void drawShooter(Graphics2D g, Turret t) {
+        ShotPhysics.Settings s = t.settings;
         double h = s.launchHeightIn;
         double a = Math.toRadians(s.launchAngleDeg);
         double ballR = s.ball.diameterIn / 2, wheelR = s.flywheelDiameterIn / 2;
-
-        // Robot chassis (just a box under the shooter).
-        g.setColor(new Color(70, 75, 90));
-        g.fill(new Rectangle2D.Double(-18, 1.5, 18, Math.max(3, Math.min(8, h - 4))));
 
         // Flywheel sits beside the ball's path: under it for backspin, over it for topspin.
         double side = s.spin == ShotPhysics.Spin.TOPSPIN ? 1 : -1;
@@ -158,26 +190,26 @@ public class ShotView extends JPanel {
         g.setColor(new Color(20, 40, 60));
         g.setStroke(new BasicStroke(0.35f));
         for (int i = 0; i < 4; i++) {
-            double sa = flywheelAngle + i * Math.PI / 4;
+            double sa = t.flywheelAngle + i * Math.PI / 4;
             g.draw(new Line2D.Double(cx - Math.cos(sa) * wheelR, cz - Math.sin(sa) * wheelR,
                     cx + Math.cos(sa) * wheelR, cz + Math.sin(sa) * wheelR));
         }
     }
 
-    private void drawPath(Graphics2D g) {
-        if (result.path.size() < 2) return;
+    private void drawPath(Graphics2D g, Turret t) {
+        if (t.result.path.size() < 2) return;
         Path2D.Double p = new Path2D.Double();
-        p.moveTo(result.path.get(0)[1], result.path.get(0)[2]);
-        for (double[] pt : result.path) p.lineTo(pt[1], pt[2]);
+        p.moveTo(t.result.path.get(0)[1], t.result.path.get(0)[2]);
+        for (double[] pt : t.result.path) p.lineTo(pt[1], pt[2]);
         g.setColor(new Color(255, 255, 255, 120));
         g.setStroke(new BasicStroke(0.4f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 10f, new float[]{1.5f, 1.2f}, 0f));
         g.draw(p);
     }
 
     /** One small dot per practice shot, where it reached the HIVE (or the floor). */
-    private void drawOddsDots(Graphics2D g) {
-        if (odds == null) return;
-        for (double[] h : odds.hits) {
+    private void drawOddsDots(Graphics2D g, Turret t) {
+        if (t.odds == null) return;
+        for (double[] h : t.odds.hits) {
             ShotPhysics.Outcome o = ShotPhysics.Outcome.values()[(int) h[2]];
             g.setColor(o == ShotPhysics.Outcome.SCORED ? new Color(80, 230, 110, 170)
                     : o == ShotPhysics.Outcome.BOUNCED_OUT || o == ShotPhysics.Outcome.RIM ? new Color(255, 170, 50, 170)
@@ -186,16 +218,16 @@ public class ShotView extends JPanel {
         }
     }
 
-    private void drawBall(Graphics2D g) {
-        double[] pt = result.path.get(result.path.size() - 1);
+    private void drawBall(Graphics2D g, Turret t) {
+        double[] pt = t.result.path.get(t.result.path.size() - 1);
         if (animTime >= 0) {
-            for (double[] candidate : result.path) {
+            for (double[] candidate : t.result.path) {
                 pt = candidate;
                 if (candidate[0] >= animTime) break;
             }
         }
-        double r = settings.ball.diameterIn / 2;
-        g.setColor(settings.ball.color);
+        double r = t.settings.ball.diameterIn / 2;
+        g.setColor(t.settings.ball.color);
         g.fill(new Ellipse2D.Double(pt[1] - r, pt[2] - r, 2 * r, 2 * r));
         // A line across the ball so you can see it spin.
         g.setColor(Color.BLACK);
@@ -205,54 +237,68 @@ public class ShotView extends JPanel {
                 pt[1] + Math.cos(sa) * r, pt[2] - Math.sin(sa) * r));
     }
 
+    /** Text: one column per turret, so both turrets' numbers are on screen at once. */
     private void drawText(Graphics2D g) {
-        ShotPhysics.Result r = result;
-        Color outcomeColor = r.outcome == ShotPhysics.Outcome.SCORED ? new Color(80, 230, 110)
-                : r.outcome == ShotPhysics.Outcome.RIM || r.outcome == ShotPhysics.Outcome.BOUNCED_OUT ? new Color(255, 190, 60) : new Color(255, 100, 100);
-        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 22));
-        g.setColor(outcomeColor);
-        g.drawString(r.message, 20, 32);
+        int columnWidth = getWidth() / turrets.size();
+        for (int i = 0; i < turrets.size(); i++) {
+            drawTurretText(g, i, turrets.get(i), 20 + i * columnWidth);
+        }
+    }
 
-        int y = 58;
-        if (odds != null) {
+    private void drawTurretText(Graphics2D g, int index, Turret t, int x) {
+        ShotPhysics.Settings s = t.settings;
+        ShotPhysics.Result r = t.result;
+        Font bold = new Font(Font.SANS_SERIF, Font.BOLD, 13);
+        Font mono = new Font(Font.MONOSPACED, Font.PLAIN, 12);
+
+        int y = 30;
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
+        g.setColor(s.ball.color);
+        g.drawString((index == 0 ? "BACK turret" : "FRONT turret") + "  -  " + s.ball.label, x, y);
+
+        g.setFont(bold);
+        g.setColor(outcomeColor(r.outcome));
+        g.drawString(r.message, x, y += 22);
+
+        if (t.odds != null) {
             // The big number: out of many slightly-off shots, how many score and stay in?
-            double chance = odds.chance();
+            double chance = t.odds.chance();
+            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 15));
             g.setColor(chance >= 80 ? new Color(80, 230, 110) : chance >= 50 ? new Color(255, 190, 60) : new Color(255, 100, 100));
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 18));
-            g.drawString(String.format("Chance to score AND stay in: %.0f%%", chance), 20, y);
-            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+            g.drawString(String.format("Chance to score AND stay in: %.0f%%", chance), x, y += 24);
+            g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
             g.setColor(new Color(200, 200, 210));
-            g.drawString(String.format("(%d practice shots with wobble:  %d stayed in,  %d bounced out,  %d hit the rim,  %d missed)",
-                    odds.shots, odds.stayed, odds.bouncedOut, odds.rim, odds.missed), 20, y += 20);
-            y += 24;
+            g.drawString(String.format("(%d practice shots: %d stayed in, %d bounced, %d rim, %d missed)",
+                    t.odds.shots, t.odds.stayed, t.odds.bouncedOut, t.odds.rim, t.odds.missed), x, y += 17);
         }
 
-        g.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
-
-        // Summary of the main settings, so you always know what you're looking at.
-        ShotPhysics.Settings s = settings;
+        g.setFont(mono);
         g.setColor(new Color(150, 200, 255));
-        g.drawString(String.format("SETTINGS  %s  |  distance %.0f in  |  angle %.1f deg  |  height %.1f in  |  %.0f%% squeeze  |  %s%s",
-                s.ball.label, s.distanceIn, s.launchAngleDeg, s.launchHeightIn, s.compressionPct,
-                s.spin.label.toLowerCase(), s.airEffects ? "" : "  |  no air"), 20, y);
-        y += 18;
+        g.drawString(String.format("dist %.0f in   angle %.1f deg   height %.1f in", s.distanceIn, s.launchAngleDeg, s.launchHeightIn), x, y += 20);
+        g.drawString(String.format("squeeze %.0f%%   %s%s", s.compressionPct, s.spin.label.toLowerCase(),
+                s.airEffects ? "" : "   no air"), x, y += 18);
 
         g.setColor(new Color(225, 225, 230));
-        g.drawString(String.format("Flywheel  %5.0f RPM   surface speed %5.1f ft/s   grip %3.0f%%",
-                settings.flywheelRpm, r.surfaceSpeedInPerSec / 12, r.grip * 100), 20, y);
-        g.drawString(String.format("Ball exit %5.1f ft/s   ball spin %5.0f RPM %s",
-                r.exitSpeedInPerSec / 12, r.ballSpinRpm, settings.spin == ShotPhysics.Spin.NONE ? "" : settings.spin.name().toLowerCase()), 20, y += 18);
-        g.drawString(String.format("Highest point %5.1f in   flight time %4.2f s", r.apexIn, r.flightTime), 20, y += 18);
+        g.drawString(String.format("Flywheel %5.0f RPM   surface %5.1f ft/s   grip %3.0f%%",
+                s.flywheelRpm, r.surfaceSpeedInPerSec / 12, r.grip * 100), x, y += 18);
+        g.drawString(String.format("Ball exit %5.1f ft/s   spin %5.0f RPM", r.exitSpeedInPerSec / 12, r.ballSpinRpm), x, y += 18);
+        g.drawString(String.format("Highest %5.1f in   flight %4.2f s", r.apexIn, r.flightTime), x, y += 18);
         if (r.outcome == ShotPhysics.Outcome.SCORED || r.outcome == ShotPhysics.Outcome.BOUNCED_OUT
                 || r.outcome == ShotPhysics.Outcome.RIM) {
             g.drawString(String.format("At the HIVE: ball is %s, coming in %4.1f deg %s",
                     r.risingAtTarget ? "still RISING" : "falling",
-                    Math.abs(r.entryAngleDeg), r.entryAngleDeg >= 0 ? "downward" : "upward"), 20, y += 18);
+                    Math.abs(r.entryAngleDeg), r.entryAngleDeg >= 0 ? "downward" : "upward"), x, y += 18);
         }
-        String window = scoringRanges == null || scoringRanges.isEmpty()
-                ? "No flywheel speed scores with these settings - change the angle or distance."
-                : "Speeds that score and stay in (exact shot, no wobble): " + describe(scoringRanges);
-        g.drawString(window, 20, y + 18);
+        String window = t.scoringRanges == null || t.scoringRanges.isEmpty()
+                ? "No flywheel speed scores with these settings."
+                : "Scores at: " + describe(t.scoringRanges);
+        g.drawString(window, x, y + 18);
+    }
+
+    private static Color outcomeColor(ShotPhysics.Outcome o) {
+        return o == ShotPhysics.Outcome.SCORED ? new Color(80, 230, 110)
+                : o == ShotPhysics.Outcome.RIM || o == ShotPhysics.Outcome.BOUNCED_OUT ? new Color(255, 190, 60)
+                : new Color(255, 100, 100);
     }
 
     private static String describe(List<double[]> ranges) {
@@ -264,26 +310,25 @@ public class ShotView extends JPanel {
         return sb.toString();
     }
 
-    /** A bar from 0 to 6000 RPM: green where the shot scores, white line at the current speed. */
-    private void drawRpmBar(Graphics2D g, int x, int y, int width) {
+    /** A bar from 0 to 6000 RPM for one turret: green where its shot scores, white line at its current speed. */
+    private void drawRpmBar(Graphics2D g, Turret t, int index, int x, int y, int width) {
         int height = 14;
         g.setColor(new Color(60, 62, 72));
         g.fillRect(x, y, width, height);
-        if (scoringRanges != null) {
+        if (t.scoringRanges != null) {
             g.setColor(new Color(60, 200, 90));
-            for (double[] range : scoringRanges) {
+            for (double[] range : t.scoringRanges) {
                 int x1 = x + (int) (range[0] / RPM_BAR_MAX * width);
                 int x2 = x + (int) (range[1] / RPM_BAR_MAX * width);
                 g.fillRect(x1, y, Math.max(2, x2 - x1), height);
             }
         }
-        int cur = x + (int) (Math.min(settings.flywheelRpm, RPM_BAR_MAX) / RPM_BAR_MAX * width);
+        int cur = x + (int) (Math.min(t.settings.flywheelRpm, RPM_BAR_MAX) / RPM_BAR_MAX * width);
         g.setColor(Color.WHITE);
         g.fillRect(cur - 1, y - 4, 3, height + 8);
         g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-        g.setColor(new Color(200, 200, 205));
-        g.drawString("0 RPM", x, y + height + 13);
-        g.drawString("Flywheel speed - green = scores", x + width / 2 - 80, y + height + 13);
-        g.drawString((int) RPM_BAR_MAX + " RPM", x + width - 60, y + height + 13);
+        g.setColor(t.settings.ball.color);
+        g.drawString((index == 0 ? "Back " : "Front ") + t.settings.ball.label
+                + " flywheel speed - green = scores (0 to " + (int) RPM_BAR_MAX + " RPM)", x, y + height + 13);
     }
 }

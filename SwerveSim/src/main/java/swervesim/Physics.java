@@ -1,10 +1,10 @@
 package swervesim;
 
+import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.IMU;
-import com.qualcomm.robotcore.hardware.Servo;
-import com.qualcomm.robotcore.hardware.ServoImplEx;
+import org.firstinspires.ftc.teamcode.SwerveCode.SwerveDriveV2;
 
 import java.awt.Color;
 import java.util.ArrayList;
@@ -14,31 +14,21 @@ import java.util.List;
  * Simple pretend-physics for the swerve robot.
  *
  * Every tick we:
- *   1. Turn each steering servo toward the position SwerveDrive asked for (servos take time to turn).
- *   2. Work out which way each wheel is pushing, and how hard (from its angle and motor power).
- *   3. Find the robot motion (slide + spin) that best matches all four wheel pushes.
- *   4. Measure how much the wheels DISAGREE with that motion. We call this "wheel fight".
- *      A good swerve drive keeps wheel fight near 0. Big wheel fight = wheels pushing against
- *      each other, which on a real robot means scrubbing, jittering, or not moving at all.
- *
- * This is NOT real physics (no weight, friction, or wheel slip) - it's just enough to see
- * whether the code's wheel commands make sense.
- *
- * Directions used everywhere in here (robot's point of view):
- *   +x = right, +y = forward.
- *   Wheel angle: 0 = pointing forward, positive = turned toward the right (clockwise).
- *   Spin (omega) and heading: counter-clockwise positive, same as the FTC IMU.
+ *   1. Turn each steering servo based on the CRServo power SwerveDriveV2 asked for.
+ *   2. Update encoder ticks so SwerveDriveV2's PID can measure pod angle.
+ *   3. Work out which way each wheel is pushing, and how hard (from its angle and motor power).
+ *   4. Find the robot motion (slide + spin) that best matches all four wheel pushes.
+ *   5. Measure how much the wheels DISAGREE with that motion ("wheel fight").
  */
 public class Physics {
 
     // ---------------- Numbers you can tweak ----------------
 
-    /** Degrees the steering servo REALLY turns from position 0.0 to 1.0.
-     *  goBILDA servos: about 300. (The old SwerveDrive assumed 360 - press G in the sim to compare.) */
-    public static double SERVO_RANGE_DEG = 300;
-
-    /** How fast the steering servo turns, in degrees per second. */
+    /** How fast the steering servo turns at full power (1.0), in degrees per second. */
     public static final double SERVO_SPEED_DEG_PER_SEC = 400;
+
+    /** Legacy display range for simulator UI. */
+    public static double SERVO_RANGE_DEG = 360;
 
     /** How fast a wheel drives at motor power 1.0, in inches per second. */
     public static final double MAX_WHEEL_SPEED = 60;
@@ -48,36 +38,33 @@ public class Physics {
 
     // --------------------------------------------------------
 
-    /** One swerve module: a steering servo plus a drive motor. */
+    /** One swerve module: a steering CRServo, drive motor, and through-bore encoder. */
     public static class Module {
         public final String name;
         public final Color color;
         public final double x, y;           // where the wheel sits, in inches from the robot center
-        public final ServoImplEx servo;
+        public final CRServo servo;
         public final DcMotor motor;
+        public final DcMotor encoder;
 
-        public double servoPos = 0.5;       // where the servo physically IS (it lags behind the command)
+        public double currentAngleRad = 0;   // where the wheel physically IS
         public double vx, vy;               // how this wheel is pushing (inches/sec, robot frame)
 
-        Module(String name, Color color, double x, double y, ServoImplEx servo, DcMotor motor) {
-            this.name = name; this.color = color; this.x = x; this.y = y; this.servo = servo; this.motor = motor;
+        Module(String name, Color color, double x, double y, CRServo servo, DcMotor motor, DcMotor encoder) {
+            this.name = name; this.color = color; this.x = x; this.y = y;
+            this.servo = servo; this.motor = motor; this.encoder = encoder;
         }
 
         /** Angle the wheel is pointing right now (radians). */
-        public double angle() { return servoPosToAngle(servo, servoPos); }
+        public double angle() { return currentAngleRad; }
 
-        /** Angle SwerveDrive asked for (radians). The wheel catches up to this over time. */
-        public double commandedAngle() { return servoPosToAngle(servo, servo.getPosition()); }
+        /** Angle SwerveDriveV2 asked for (radians). */
+        public double commandedAngle() { return currentAngleRad; }
 
         /** Motor power, flipped if the motor is set to REVERSE. */
         public double wheelPower() {
             double p = motor.getPower();
             return motor.getDirection() == DcMotor.Direction.REVERSE ? -p : p;
-        }
-
-        private static double servoPosToAngle(Servo servo, double pos) {
-            if (servo.getDirection() == Servo.Direction.REVERSE) pos = 1 - pos;
-            return Math.toRadians((pos - 0.5) * SERVO_RANGE_DEG);
         }
     }
 
@@ -93,15 +80,15 @@ public class Physics {
 
     public Physics(HardwareMap hw, double wheelbaseLength, double wheelbaseWidth) {
         double hl = wheelbaseLength / 2, hw2 = wheelbaseWidth / 2;
-        // Must match the device names and layout in SwerveDrive:
+        // Must match the device names and layout in SwerveDriveV2:
         //   RED--------BLU
         //    |          |
         //   GRN--------YLW
         modules = new Module[]{
-                new Module("red",    new Color(220, 50, 50),  -hw2,  hl, hw.get(ServoImplEx.class, "redServo"),    hw.get(DcMotor.class, "redMotor")),
-                new Module("blue",   new Color(40, 100, 230),  hw2,  hl, hw.get(ServoImplEx.class, "blueServo"),   hw.get(DcMotor.class, "blueMotor")),
-                new Module("green",  new Color(30, 160, 60),  -hw2, -hl, hw.get(ServoImplEx.class, "greenServo"),  hw.get(DcMotor.class, "greenMotor")),
-                new Module("yellow", new Color(225, 180, 0),   hw2, -hl, hw.get(ServoImplEx.class, "yellowServo"), hw.get(DcMotor.class, "yellowMotor")),
+                new Module("red",    new Color(220, 50, 50),  -hw2,  hl, hw.get(CRServo.class, "redServo"),    hw.get(DcMotor.class, "redMotor"),    hw.get(DcMotor.class, "redServoEncoder")),
+                new Module("blue",   new Color(40, 100, 230),  hw2,  hl, hw.get(CRServo.class, "blueServo"),   hw.get(DcMotor.class, "blueMotor"),   hw.get(DcMotor.class, "blueServoEncoder")),
+                new Module("green",  new Color(30, 160, 60),  -hw2, -hl, hw.get(CRServo.class, "greenServo"),  hw.get(DcMotor.class, "greenMotor"),  hw.get(DcMotor.class, "greenServoEncoder")),
+                new Module("yellow", new Color(225, 180, 0),   hw2, -hl, hw.get(CRServo.class, "yellowServo"), hw.get(DcMotor.class, "yellowMotor"), hw.get(DcMotor.class, "yellowServoEncoder")),
         };
         imu = hw.get(IMU.class, "imu");
         halfDiagonal = Math.hypot(hl, hw2);
@@ -115,19 +102,29 @@ public class Physics {
         heading = 0;
         trail.clear();
         imu.simSetHeading(heading);
+        if (modules != null) {
+            for (Module m : modules) {
+                m.currentAngleRad = 0;
+                m.encoder.setCurrentPosition(0);
+            }
+        }
     }
 
     /** Move the simulation forward by dt seconds. */
     public void step(double dt) {
-        // 1 + 2: turn servos toward their targets, then find each wheel's push.
-        double maxServoStep = SERVO_SPEED_DEG_PER_SEC / SERVO_RANGE_DEG * dt;
+        // Turn servos based on CRServo power and update encoder ticks
+        double maxTurnSpeedRad = Math.toRadians(SERVO_SPEED_DEG_PER_SEC);
         for (Module m : modules) {
-            double error = m.servo.getPosition() - m.servoPos;
-            m.servoPos += Math.max(-maxServoStep, Math.min(maxServoStep, error));
+            double servoPower = m.servo.getPower();
+            if (m.servo.getDirection() == CRServo.Direction.REVERSE) servoPower = -servoPower;
+            m.currentAngleRad += servoPower * maxTurnSpeedRad * dt;
+
+            int ticks = (int) Math.round((m.currentAngleRad / (2.0 * Math.PI)) * 8192.0);
+            m.encoder.setCurrentPosition(ticks);
 
             double speed = m.wheelPower() * MAX_WHEEL_SPEED;
-            m.vx = speed * Math.sin(m.angle());
-            m.vy = speed * Math.cos(m.angle());
+            m.vx = speed * Math.sin(m.currentAngleRad);
+            m.vy = speed * Math.cos(m.currentAngleRad);
         }
 
         // 3: best-fit robot motion. Slide = average wheel push.

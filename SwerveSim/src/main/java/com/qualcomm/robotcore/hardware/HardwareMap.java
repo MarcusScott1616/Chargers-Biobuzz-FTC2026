@@ -9,7 +9,7 @@ import java.util.Map;
  * On the real robot, hardwareMap.get() looks up a device in the robot's configuration
  * and throws an error if the name is missing. Here we just create a fake device the
  * first time a name is asked for, and hand back the same object every time after that.
- * That way the simulator can ask for "redServo" too and see what SwerveDrive told it.
+ * That way the simulator can ask for "redServo" too and see what SwerveDriveV2 told it.
  */
 public class HardwareMap {
     private final Map<String, Object> devices = new HashMap<>();

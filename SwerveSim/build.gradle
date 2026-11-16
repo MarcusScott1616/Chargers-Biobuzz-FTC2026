@@ -1,7 +1,7 @@
 //
 // SwerveSim: a laptop simulator for the swerve drive. NOT part of the robot app.
 //
-// It compiles the REAL SwerveDrive.java from TeamCode together with fake FTC hardware
+// It compiles the REAL SwerveDriveV2.java from TeamCode together with fake FTC hardware
 // classes (in SwerveSim/src/main/java), then draws what the code tells the robot to do.
 //
 // Run it:  Gradle panel -> SwerveSim -> Tasks -> application -> run
@@ -11,18 +11,22 @@
 apply plugin: 'java'
 apply plugin: 'application'
 
+def teamCodeGenerated = layout.buildDirectory.dir("generated/teamcode")
+
+tasks.register('syncTeamCode', Copy) {
+    from('../TeamCode/src/main/java') {
+        include 'org/firstinspires/ftc/teamcode/SwerveCode/SwerveDriveV2.java'
+    }
+    into teamCodeGenerated
+}
+
+compileJava.dependsOn syncTeamCode
+
 sourceSets {
     main {
         java {
             srcDir 'src/main/java'
-            srcDir '../TeamCode/src/main/java'
-            // Only take the pieces we have fakes for. Add more TeamCode files here when needed.
-            include 'swervesim/**'
-            include 'turretsim/**'
-            include 'com/qualcomm/**'
-            include 'org/firstinspires/ftc/robotcore/**'
-            include 'org/firstinspires/ftc/teamcode/SwerveCode/SwerveDrive.java'
-            include 'org/firstinspires/ftc/teamcode/SwerveCode/SwerveDriveV2.java'
+            srcDir teamCodeGenerated
         }
     }
 }

@@ -108,7 +108,7 @@ public class FieldView extends JPanel {
         AffineTransform robotTransform = g.getTransform();
         g.translate(m.x, m.y);
 
-        // Thin dashed line = where SwerveDrive TOLD the wheel to point. The wheel turns to catch up.
+        // Thin dashed line = where the code TOLD the wheel to point. The wheel turns to catch up.
         AffineTransform moduleTransform = g.getTransform();
         g.rotate(-m.commandedAngle()); // minus because wheel angles are clockwise-positive
         g.setColor(new Color(255, 255, 255, 160));
