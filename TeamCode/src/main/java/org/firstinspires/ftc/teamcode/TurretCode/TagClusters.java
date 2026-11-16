@@ -22,9 +22,8 @@ import com.qualcomm.hardware.dfrobot.HuskyLens;
  */
 public class TagClusters {
 
-    // TUNE: the tag IDs in each cluster. These numbers are placeholders - change them to the
-    // IDs your HuskyLens reports (run HuskyTest to check). Each cluster can have as many tags
-    // as you like.
+    // Check tagIDs in each cluster. These numbers are placeholders - change them to the
+    // IDs HuskyLens reports (run HuskyTest to check).
     public static final Cluster[] CLUSTERS = {
             new Cluster("blue 1", 1, 2, 3, 4),
             new Cluster("blue 2",  5, 6, 7, 8),

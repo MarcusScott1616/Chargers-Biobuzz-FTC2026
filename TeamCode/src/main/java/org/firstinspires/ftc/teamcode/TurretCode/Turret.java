@@ -40,6 +40,7 @@ public class Turret {
 
     /** Nectar (big 3.6 in blue ball), 14 in launch height (back turret). */
     public static final double[][] NECTAR_SHOT_TABLE = {
+            // distance, angle, rpm
             { 36, 64.5, 2500},   // 88%
             { 48, 53.0, 2850},   // 88%
             { 60, 47.5, 3050},   // 90%

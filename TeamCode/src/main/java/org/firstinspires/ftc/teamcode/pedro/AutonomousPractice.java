@@ -8,7 +8,6 @@ import com.pedropathing.paths.Path;
 import com.qualcomm.robotcore.eventloop.opmode.Autonomous;
 import com.qualcomm.robotcore.eventloop.opmode.OpMode;
 import com.qualcomm.robotcore.hardware.DcMotor;
-import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.ElapsedTime;
 
 import org.firstinspires.ftc.teamcode.TurretCode.Turret;
@@ -32,8 +31,7 @@ import static com.pedropathing.api.Paths.line;
  *   AIM_*        - setState() turns the turret flywheels on. loop() waits until both turrets say
  *                  they're ready (at speed and aimed), or until AIM_MAX_SECONDS passes.
  *   SHOOT_*      - setState() asks TurretAutoLogic to feed balls. loop() waits until it's done.
- *   INTAKE_*     - setState() lowers the ramp and runs the intake motor. loop() waits, then moves on.
- *   RAISE_RAMP   - setState() stops the intake and raises the ramp. loop() waits for the servo.
+ *   INTAKE_*     - setState() runs the intake motor. loop() waits, then moves on.
  *
  * Every loop() also updates the cameras and both turrets, so they keep aiming while the robot drives.
  *
@@ -51,11 +49,8 @@ public class AutonomousPractice extends OpMode {
     // ---------- TUNE: timing and hardware values (measure these on the robot) ----------
     private static final double AIM_MAX_SECONDS = 3.0;   // stop waiting for the turrets after this long, then shoot anyway
     private static final int SHOTS_PER_VOLLEY = 1;       // balls fed per SHOOT state. Match this to the real volley.
-    private static final double RAMP_SECONDS = 0.5;      // time for the ramp servo to move
     private static final double INTAKE_SECONDS = 2.0;    // how long the intake runs at the flowers
     private static final double INTAKE_POWER = 1.0;      // intake motor power
-    private static final double RAMP_DOWN_POSITION = 0.0; // ramp lowered to reach the flowers. Swap with RAMP_UP if it moves the wrong way.
-    private static final double RAMP_UP_POSITION = 1.0;   // ramp raised out of the way
 
     // ---------- every position the robot visits (exact points from RED_2.5Tip_FarPark.pp) ----------
     // Headings only matter where a path uses a linear heading. The others follow the path direction.
@@ -82,7 +77,6 @@ public class AutonomousPractice extends OpMode {
     private final Turret pollen = Turret.pollen();
     private final TurretAutoLogic feeder = new TurretAutoLogic();
     private DcMotor intakeMotor;                             // goBILDA motor on the intake
-    private Servo rampServo;                                 // lowers/raises the ramp for flowers
 
     // ---------- the states ----------
     // Read top to bottom: this is the order the robot does things in.
@@ -98,7 +92,6 @@ public class AutonomousPractice extends OpMode {
         SHOOT_THIRD,
         DRIVE_TO_FLOWER_TWO,
         INTAKE_FLOWER_TWO,
-        RAISE_RAMP,
         DRIVE_TO_FOURTH_SHOT,
         AIM_FOURTH,
         SHOOT_FOURTH,
@@ -125,8 +118,6 @@ public class AutonomousPractice extends OpMode {
         feeder.init(hardwareMap);
 
         intakeMotor = hardwareMap.get(DcMotor.class, "intakeMotor");
-        rampServo = hardwareMap.get(Servo.class, "rampServo");
-        rampServo.setPosition(RAMP_UP_POSITION);
 
         telemetry.addData("Alliance", ALLIANCE.toUpperCase());
         telemetry.addLine("Autonomous ready.");
@@ -199,12 +190,12 @@ public class AutonomousPractice extends OpMode {
                 if (!feeder.isBusy()) setState(State.DRIVE_TO_LINE_UP_PARK);
                 break;
 
-            // ----- intake: run the intake for a set time, then raise the ramp -----
+            // ----- intake: run the intake for a set time -----
             case INTAKE_FLOWER_TWO:
-                if (stateTimer.seconds() >= INTAKE_SECONDS) setState(State.RAISE_RAMP);
-                break;
-            case RAISE_RAMP:
-                if (stateTimer.seconds() >= RAMP_SECONDS) setState(State.DRIVE_TO_FOURTH_SHOT);
+                if (stateTimer.seconds() >= INTAKE_SECONDS) {
+                    intakeMotor.setPower(0);
+                    setState(State.DRIVE_TO_FOURTH_SHOT);
+                }
                 break;
 
             case DONE:
@@ -273,13 +264,7 @@ public class AutonomousPractice extends OpMode {
                 break;
 
             case INTAKE_FLOWER_TWO:
-                rampServo.setPosition(RAMP_DOWN_POSITION);   // lower the ramp onto the flowers
-                intakeMotor.setPower(INTAKE_POWER);          // and run the intake
-                break;
-
-            case RAISE_RAMP:
-                intakeMotor.setPower(0);                     // stop the intake
-                rampServo.setPosition(RAMP_UP_POSITION);     // raise the ramp out of the way
+                intakeMotor.setPower(INTAKE_POWER);          // run the intake
                 break;
 
             case DONE:
