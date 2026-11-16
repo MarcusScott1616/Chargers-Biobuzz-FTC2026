@@ -150,8 +150,8 @@ public class SwerveSim {
 
         s.append("MODULES   servo  wheel  target   power\n");
         for (Physics.Module m : physics.modules) {
-            s.append(String.format("  %-6s  %5.3f  %+5.0f  %+5.0f   %+5.2f%n",
-                    m.name, m.servo.getPosition(),
+            s.append(String.format("  %-6s  %+5.2f  %+5.0f  %+5.0f   %+5.2f%n",
+                    m.name, m.servo.getPower(),
                     Math.toDegrees(m.angle()), Math.toDegrees(m.commandedAngle()),
                     m.motor.getPower()));
         }

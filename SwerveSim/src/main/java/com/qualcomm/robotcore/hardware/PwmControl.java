@@ -1,6 +1,6 @@
 package com.qualcomm.robotcore.hardware;
 
-/* FAKE PwmControl for SwerveSim - only the PwmRange holder is needed. */
+/* FAKE PwmControl for SwerveSim. */
 public interface PwmControl {
     class PwmRange {
         public final double usPulseLower;
@@ -11,4 +11,8 @@ public interface PwmControl {
             this.usPulseUpper = usPulseUpper;
         }
     }
+
+    void setPwmEnable();
+    void setPwmDisable();
+    boolean isPwmEnabled();
 }
