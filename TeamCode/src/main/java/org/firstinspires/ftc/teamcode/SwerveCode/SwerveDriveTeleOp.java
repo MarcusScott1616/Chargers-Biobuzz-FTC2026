@@ -15,10 +15,16 @@ public class SwerveDriveTeleOp extends OpMode {
 
     @Override
     public void start() {
+        swerveDrive.enablePwm();
+        swerveDrive.resetEncoders();
     }
 
     @Override
     public void loop() {
+        if (gamepad1.back || gamepad1.guide) {
+            swerveDrive.resetYaw();
+        }
+
         float strafeX = gamepad1.left_stick_x;
         float strafeY = -gamepad1.left_stick_y; // In FTC, forward stick is negative
         float rotate = gamepad1.right_stick_x;

@@ -37,10 +37,10 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(CRServo.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(-6, 6));
+                c.podOffset.set(Vector2D.cartesian(6, -6)); // Back-Right (+x, -y)
             }
     );
 
@@ -53,11 +53,10 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(CRServo.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(6, 6));
-
+                c.podOffset.set(Vector2D.cartesian(-6, 6)); // Front-Left (-x, +y)
             }
     );
 
@@ -70,11 +69,10 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.005)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(CRServo.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(-6, -6));
-
+                c.podOffset.set(Vector2D.cartesian(6, 6)); // Front-Right (+x, +y)
             }
     );
 
@@ -87,11 +85,10 @@ public class Constants {
                 c.turnController.set(Controller.pid(0.3, 0, 0.0086)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
-                c.servoDirection.set(CRServo.Direction.FORWARD);
+                c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(6, -6));
-
+                c.podOffset.set(Vector2D.cartesian(-6, -6)); // Back-Left (-x, -y)
             }
     );
 
@@ -104,10 +101,10 @@ public class Constants {
     );
 
     public static Follower create(HardwareMap h) {
-        CoaxialPod yellow = new CoaxialPod(h, yellowPod);
-        CoaxialPod red = new CoaxialPod(h, redPod);
-        CoaxialPod blue = new CoaxialPod(h, bluePod);
-        CoaxialPod green = new CoaxialPod(h, greenPod);
+        ThroughBoreCoaxialPod yellow = new ThroughBoreCoaxialPod(h, yellowPod);
+        ThroughBoreCoaxialPod red = new ThroughBoreCoaxialPod(h, redPod);
+        ThroughBoreCoaxialPod blue = new ThroughBoreCoaxialPod(h, bluePod);
+        ThroughBoreCoaxialPod green = new ThroughBoreCoaxialPod(h, greenPod);
 
         return new Follower(new PinpointLocalizer(h, pinpointConfig), new Swerve(h, driveConfig,
                 blue, yellow, green, red), new Foresight(foresightConfig));
