@@ -40,26 +40,29 @@ public class SwerveDriveV2 {
     public static double DEADZONE = 0.05;
 
     /** PID Gains for Pod Steering (tuned for real CRServos + Lynx bulk caching). */
-    public static double kP = 0.30;
+    public static double kP = 0.22;
     public static double kI = 0.0;
-    public static double kD = 0.015;
+    public static double kD = 0.012;
     public static double MAX_INTEGRAL = 0.2;
 
     /** Minimum servo power to overcome static friction (disabled = 0.0). */
     public static double kStatic = 0.0;
 
-    /** Angular tolerance (radians) within which steering is considered "on target" (~3 degrees). */
-    public static double STEER_TOLERANCE = Math.toRadians(3.0);
+    /** Angular tolerance (radians) to stop steering once aligned (~2.5 degrees). */
+    public static double STEER_TOLERANCE = Math.toRadians(2.5);
+
+    /** Hysteresis wake-up angle: once settled inside STEER_TOLERANCE, servos stay off until error exceeds this (~5 degrees). */
+    public static double STEER_WAKE_TOLERANCE = Math.toRadians(5.0);
 
     /** Hysteresis thresholds around 90 deg so pods don't chatter reversing drive & steer direction. */
     private static final double FLIP_ENTER_RAD = Math.toRadians(95.0);
     private static final double FLIP_EXIT_RAD  = Math.toRadians(85.0);
 
     /** Minimum change in servo power before sending a new PWM write (0 is always sent immediately). */
-    private static final double SERVO_CACHE_THRESHOLD = 0.01;
+    private static final double SERVO_CACHE_THRESHOLD = 0.002;
 
-    /** Low-pass EMA factor for derivative filtering (rejects PWM frame / encoder stepping noise). */
-    private static final double DERIVATIVE_FILTER_ALPHA = 0.35;
+    /** Low-pass EMA factor for derivative filtering. */
+    private static final double DERIVATIVE_FILTER_ALPHA = 0.50;
 
     /** When true, CRServos are powered down (0 power) when joysticks are idle to prevent jitter and heating. */
     public static boolean RELAX_SERVOS_WHEN_IDLE = true;
@@ -151,6 +154,7 @@ public class SwerveDriveV2 {
         private double integral = 0;
         private long lastTimeNs = 0;
         private boolean lastFlipped = false;
+        private boolean steerSettled = false;
         private double currentErrorDeg = 0;
         private double currentServoPower = 0;
         private double lastSentServoPower = Double.NaN;
@@ -181,6 +185,7 @@ public class SwerveDriveV2 {
             lastError = 0;
             filteredDerivative = 0;
             lastFlipped = false;
+            steerSettled = false;
             lastTimeNs = 0;  // forces PID to use default dt on next call
             targetAngle = 0;
             currentErrorDeg = 0;
@@ -229,7 +234,8 @@ public class SwerveDriveV2 {
         }
 
         /**
-         * Shared closed-loop steering PID calculation with flip hysteresis and filtered derivative.
+         * Shared closed-loop steering PID calculation with flip hysteresis, Schmitt-trigger
+         * settling deadband, and non-reversing derivative braking.
          * Returns the clamped servo power in [-1.0, 1.0].
          */
         private double calculateSteerPower(double error, boolean flipped) {
@@ -253,31 +259,47 @@ public class SwerveDriveV2 {
             if (flipped != lastFlipped) {
                 lastError = error;
                 filteredDerivative = 0;
+                steerSettled = false;
             }
             lastFlipped = flipped;
 
-            // PID calculation
-            integral += error * dt;
-            integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
-
+            // Keep filtered velocity estimate continuously updated (even while settled)
             double safeDt = Math.max(dt, 0.002);
             double rawDerivative = (error - lastError) / safeDt;
             filteredDerivative = DERIVATIVE_FILTER_ALPHA * rawDerivative
                     + (1.0 - DERIVATIVE_FILTER_ALPHA) * filteredDerivative;
             lastError = error;
 
-            // Prevent servo chatter: if error is within STEER_TOLERANCE, cut power and reset integral.
-            double turnPower;
-            if (Math.abs(error) <= STEER_TOLERANCE) {
-                turnPower = 0;
-                integral = 0;
-                filteredDerivative = 0;
-            } else {
-                turnPower = (kP * error) + (kI * integral) + (kD * filteredDerivative);
-                // Static friction feedforward: add a minimum kick in the direction of error
-                if (kStatic > 0) {
-                    turnPower += Math.signum(error) * kStatic;
+            // Schmitt-trigger settling deadband: stop once <= STEER_TOLERANCE,
+            // stay off until error exceeds wakeTolerance so coast/backlash never hunts across 0.
+            double wakeTolerance = Math.max(STEER_WAKE_TOLERANCE, STEER_TOLERANCE * 1.8);
+            if (steerSettled) {
+                if (Math.abs(error) <= wakeTolerance) {
+                    integral = 0;
+                    return 0;
                 }
+                steerSettled = false;
+            }
+            if (Math.abs(error) <= STEER_TOLERANCE) {
+                steerSettled = true;
+                integral = 0;
+                return 0;
+            }
+
+            // PID calculation
+            integral += error * dt;
+            integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
+
+            double turnPower = (kP * error) + (kI * integral) + (kD * filteredDerivative);
+
+            // Prevent D-term from actively reversing past 0 before crossing target (brake to 0 instead)
+            if (turnPower != 0 && Math.signum(turnPower) != Math.signum(error)) {
+                turnPower = 0;
+            }
+
+            // Static friction feedforward only while actively commanding motion
+            if (turnPower != 0 && kStatic > 0) {
+                turnPower += Math.signum(error) * kStatic;
             }
 
             if (SERVO_REVERSED) {
@@ -386,6 +408,7 @@ public class SwerveDriveV2 {
             lastError = 0;
             filteredDerivative = 0;
             lastFlipped = false;
+            steerSettled = false;
             lastTimeNs = 0;
         }
 
@@ -409,6 +432,7 @@ public class SwerveDriveV2 {
             lastError = 0;
             filteredDerivative = 0;
             lastFlipped = false;
+            steerSettled = false;
             lastTimeNs = 0;  // reset so next PID call doesn't get a stale time gap
             currentServoPower = 0;
             currentErrorDeg = 0;

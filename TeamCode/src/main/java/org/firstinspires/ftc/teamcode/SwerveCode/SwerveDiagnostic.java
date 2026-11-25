@@ -48,7 +48,25 @@ public class SwerveDiagnostic extends OpMode {
         telemetry.addLine("Bumpers/Buttons: test steering PID (LB=0°, RB=90°, X=-90°, Y=180°)");
         telemetry.addLine("B button: toggle SERVO_REVERSED | L3: toggle ENCODER_REVERSED");
         telemetry.addLine("Triggers: manual servo jog (RT=CW/+, LT=CCW/-)");
-        telemetry.addLine("A button: re-zero encoders (align pods forward first)");
+        telemetry.addLine("A button: re-zero encoders (works in INIT and PLAY)");
+        telemetry.update();
+    }
+
+    @Override
+    public void init_loop() {
+        if (gamepad1.a) {
+            swerve.resetEncoders();
+        }
+        telemetry.addLine("=== INIT (Servos Limp - Align Pods Forward & Press A) ===");
+        telemetry.addData("Encoder Source", swerve.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports (Fallback)");
+        if (modules != null) {
+            for (SwerveDriveV2.Module m : modules) {
+                telemetry.addData(m.name.toUpperCase(),
+                        String.format("Ticks: %6d | Angle: %+6.1f°",
+                                m.getTicks(),
+                                m.getCurrentAngleDeg()));
+            }
+        }
         telemetry.update();
     }
 
