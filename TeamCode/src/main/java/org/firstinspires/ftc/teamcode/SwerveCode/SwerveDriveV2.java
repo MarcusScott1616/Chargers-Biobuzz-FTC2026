@@ -2,6 +2,7 @@ package org.firstinspires.ftc.teamcode.SwerveCode;
 
 import com.qualcomm.hardware.digitalchickenlabs.OctoQuad;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
@@ -9,6 +10,7 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.IMU;
 import com.qualcomm.robotcore.hardware.PwmControl;
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
+import java.util.List;
 
 /*
  * SwerveDriveV2 - field-centric coaxial swerve drive with continuous rotation servos
@@ -140,6 +142,7 @@ public class SwerveDriveV2 {
         private boolean lastFlipped = false;
         private double currentServoPower = 0;
         private double currentMotorPower = 0;
+        private boolean pwmEnabled = true;
 
         public Module(String name, CRServo servo, DcMotor motor, SteeringEncoder encoderSource,
                       double x, double y, double offsetRad, boolean encoderReversed) {
@@ -262,6 +265,10 @@ public class SwerveDriveV2 {
                 integral = 0;
             } else {
                 turnPower = (kP * error) + (kI * integral) + (kD * derivative);
+                // Static friction feedforward: add a minimum kick in the direction of error
+                if (kStatic > 0) {
+                    turnPower += Math.signum(error) * kStatic;
+                }
             }
 
             if (SERVO_REVERSED) {
@@ -331,6 +338,10 @@ public class SwerveDriveV2 {
                 integral = 0;
             } else {
                 turnPower = (kP * error) + (kI * integral) + (kD * derivative);
+                // Static friction feedforward: add a minimum kick in the direction of error
+                if (kStatic > 0) {
+                    turnPower += Math.signum(error) * kStatic;
+                }
             }
 
             if (SERVO_REVERSED) {
@@ -354,9 +365,10 @@ public class SwerveDriveV2 {
         /** Disables PWM output to this servo, completely de-energizing it so it can be moved freely by hand. */
         public void disablePwm() {
             servo.setPower(0);
-            if (servo instanceof PwmControl) {
+            if (pwmEnabled && servo instanceof PwmControl) {
                 ((PwmControl) servo).setPwmDisable();
             }
+            pwmEnabled = false;
             currentServoPower = 0;
             integral = 0;
             lastError = 0;
@@ -365,9 +377,10 @@ public class SwerveDriveV2 {
 
         /** Enables PWM output to this servo so it can receive power commands. */
         public void enablePwm() {
-            if (servo instanceof PwmControl) {
+            if (!pwmEnabled && servo instanceof PwmControl) {
                 ((PwmControl) servo).setPwmEnable();
             }
+            pwmEnabled = true;
         }
 
         public void stopSteer() {
@@ -397,6 +410,16 @@ public class SwerveDriveV2 {
     private boolean usingOctoQuad = false;
 
     public void init(HardwareMap hMap) {
+        // Enable Lynx bulk caching mode across all REV Hubs for ~6x faster loop speeds (~8ms)
+        try {
+            List<LynxModule> allHubs = hMap.getAll(LynxModule.class);
+            for (LynxModule hub : allHubs) {
+                hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
+            }
+        } catch (Exception ignored) {
+            // Graceful fallback for simulation or non-Lynx hardware
+        }
+
         // Auto-detect goBILDA Pinpoint driver for drift-free, high-precision IMU yaw
         try {
             pinpoint = hMap.get(GoBildaPinpointDriver.class, "pinpoint");
@@ -409,7 +432,7 @@ public class SwerveDriveV2 {
             imu = hMap.get(IMU.class, "imu");
             imu.initialize(new IMU.Parameters(new RevHubOrientationOnRobot(
                     RevHubOrientationOnRobot.LogoFacingDirection.UP,
-                    RevHubOrientationOnRobot.UsbFacingDirection.BACKWARD)));
+                    RevHubOrientationOnRobot.UsbFacingDirection.FORWARD)));
             imu.resetYaw();
         } catch (Exception ignored) {
             imu = null;
@@ -580,6 +603,8 @@ public class SwerveDriveV2 {
      * @param rotate  counter-clockwise (-1) to clockwise (+1)
      */
     public void move(float strafeX, float strafeY, float rotate) {
+        if (modules == null) return;
+
         // Individual axis deadzones to prevent stick drift on rotation or strafe from turning pods
         double cleanX = Math.abs(strafeX) < DEADZONE ? 0 : strafeX;
         double cleanY = Math.abs(strafeY) < DEADZONE ? 0 : strafeY;
@@ -635,6 +660,8 @@ public class SwerveDriveV2 {
      * @param rotate  counter-clockwise (-1) to clockwise (+1)
      */
     public void moveRobotCentric(float strafeX, float strafeY, float rotate) {
+        if (modules == null) return;
+
         double cleanX = Math.abs(strafeX) < DEADZONE ? 0 : strafeX;
         double cleanY = Math.abs(strafeY) < DEADZONE ? 0 : strafeY;
         double cleanRotate = Math.abs(rotate) < DEADZONE ? 0 : rotate;

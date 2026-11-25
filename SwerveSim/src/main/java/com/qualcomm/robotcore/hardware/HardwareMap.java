@@ -37,4 +37,15 @@ public class HardwareMap {
             return null;
         }
     }
+
+    @SuppressWarnings("unchecked")
+    public <T> java.util.List<T> getAll(Class<? extends T> classOrInterface) {
+        java.util.List<T> list = new java.util.ArrayList<>();
+        for (Object device : devices.values()) {
+            if (classOrInterface.isInstance(device)) {
+                list.add((T) device);
+            }
+        }
+        return list;
+    }
 }

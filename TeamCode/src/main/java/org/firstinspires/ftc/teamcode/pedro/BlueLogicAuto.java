@@ -131,6 +131,7 @@ public class BlueLogicAuto extends OpMode {
     public void init_loop() {
         follower.update();
         telemetry.addData("Alliance", ALLIANCE.toUpperCase());
+        telemetry.addData("Encoder Src", Constants.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports (Fallback)");
         telemetry.addData("Pose", "X: %.1f, Y: %.1f, Heading: %.1f deg",
                 follower.pose().x(), follower.pose().y(), Math.toDegrees(follower.pose().heading()));
         telemetry.addLine("Ready. Press PLAY.");

@@ -5,11 +5,13 @@ import com.pedropathing.revhub.drivetrains.CoaxialPodConfig;
 import com.pedropathing.revhub.drivetrains.SwervePod;
 import com.pedropathing.utils.Angle;
 import com.pedropathing.utils.Utils;
+import com.qualcomm.hardware.digitalchickenlabs.OctoQuad;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.PwmControl;
+import org.firstinspires.ftc.teamcode.SwerveCode.SwerveDriveV2;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,12 +23,13 @@ import java.util.Map;
  */
 public class ThroughBoreCoaxialPod implements SwervePod {
 
-    public static final double ENCODER_TICKS_PER_REV = 8192.0;
+    public static final double ENCODER_TICKS_PER_REV = SwerveDriveV2.ENCODER_TICKS_PER_REV;
     /** Gear ratio between pod rotation and encoder shaft (16T servo shaft to 48T pod = 3.0). */
-    public static double STEER_GEAR_RATIO = 48.0 / 16.0;
+    public static double STEER_GEAR_RATIO = SwerveDriveV2.STEER_GEAR_RATIO;
 
     private final String name;
-    private final DcMotor turnEncoder;
+    private final SwerveDriveV2.SteeringEncoder turnEncoder;
+    private final boolean usingOctoQuad;
     private final CRServo turnServo;
     private final DcMotorEx driveMotor;
     private final CoaxialPodConfig config;
@@ -34,18 +37,31 @@ public class ThroughBoreCoaxialPod implements SwervePod {
 
     private double lastDrivePower = 0;
     private double lastTurnPower = 0;
+    private boolean pwmEnabled = true;
 
     public ThroughBoreCoaxialPod(HardwareMap hardwareMap, CoaxialPodConfig config) {
+        this(hardwareMap, config, null, -1);
+    }
+
+    public ThroughBoreCoaxialPod(HardwareMap hardwareMap, CoaxialPodConfig config,
+                                 OctoQuad octoquad, int octoquadChannel) {
         this.config = config;
         this.name = config.name.get();
 
         this.driveMotor = hardwareMap.get(DcMotorEx.class, config.motorName.get());
         this.turnServo = hardwareMap.get(CRServo.class, config.servoName.get());
-        this.turnEncoder = hardwareMap.get(DcMotor.class, config.servoEncoderName.get());
+
+        if (octoquad != null && octoquadChannel >= 0) {
+            this.turnEncoder = new SwerveDriveV2.OctoQuadEncoder(octoquad, octoquadChannel);
+            this.usingOctoQuad = true;
+        } else {
+            this.turnEncoder = new SwerveDriveV2.MotorPortEncoder(
+                    hardwareMap.get(DcMotor.class, config.servoEncoderName.get()));
+            this.usingOctoQuad = false;
+        }
 
         // Software zero offset
-        this.turnEncoder.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
-        this.zeroOffsetTicks = this.turnEncoder.getCurrentPosition();
+        this.zeroOffsetTicks = this.turnEncoder.getPosition();
 
         setMotorToFloat();
 
@@ -53,9 +69,27 @@ public class ThroughBoreCoaxialPod implements SwervePod {
         this.turnServo.setDirection(config.servoDirection.get());
 
         // Keep servo unpowered on init so pods can be aligned freely by hand
-        if (this.turnServo instanceof PwmControl) {
+        disablePwm();
+    }
+
+    public boolean isUsingOctoQuad() {
+        return usingOctoQuad;
+    }
+
+    /** Enables PWM output on this pod's steering servo if currently disabled. */
+    public void enablePwm() {
+        if (!pwmEnabled && this.turnServo instanceof PwmControl) {
+            ((PwmControl) this.turnServo).setPwmEnable();
+            pwmEnabled = true;
+        }
+    }
+
+    /** Disables PWM output on this pod's steering servo so it can be moved freely by hand. */
+    public void disablePwm() {
+        if (pwmEnabled && this.turnServo instanceof PwmControl) {
             ((PwmControl) this.turnServo).setPwmDisable();
         }
+        pwmEnabled = false;
     }
 
     @Override
@@ -69,9 +103,7 @@ public class ThroughBoreCoaxialPod implements SwervePod {
     }
 
     public void setServoPower(double power) {
-        if (this.turnServo instanceof PwmControl) {
-            ((PwmControl) this.turnServo).setPwmEnable();
-        }
+        enablePwm();
         lastTurnPower = power;
         turnServo.setPower(power);
     }
@@ -104,7 +136,7 @@ public class ThroughBoreCoaxialPod implements SwervePod {
     }
 
     public void resetEncoder() {
-        this.zeroOffsetTicks = this.turnEncoder.getCurrentPosition();
+        this.zeroOffsetTicks = this.turnEncoder.getPosition();
     }
 
     @Override
@@ -154,6 +186,8 @@ public class ThroughBoreCoaxialPod implements SwervePod {
             );
         }
 
+        enablePwm();
+
         double servoCachingThreshold = config.servoCachingThreshold.get();
         double motorCachingThreshold = config.motorCachingThreshold.get();
 
@@ -179,7 +213,7 @@ public class ThroughBoreCoaxialPod implements SwervePod {
     }
 
     public double getRawAngleRad() {
-        double ticks = turnEncoder.getCurrentPosition() - zeroOffsetTicks;
+        double ticks = turnEncoder.getPosition() - zeroOffsetTicks;
         double ticksPerPodRev = ENCODER_TICKS_PER_REV * STEER_GEAR_RATIO;
         if (ticksPerPodRev == 0) return 0;
         double rotations = (ticks % ticksPerPodRev) / ticksPerPodRev;

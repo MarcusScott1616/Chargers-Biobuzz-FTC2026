@@ -8,13 +8,6 @@ public class SwerveDriveTeleOp extends OpMode {
 
     SwerveDriveV2 swerveDrive = new SwerveDriveV2();
 
-    /** Stick inputs within this deadzone are treated as exactly zero. */
-    private static final float STICK_DEADZONE = 0.05f;
-
-    private float deadzone(float val) {
-        return Math.abs(val) > STICK_DEADZONE ? val : 0f;
-    }
-
     @Override
     public void init() {
         swerveDrive.init(hardwareMap);
@@ -44,10 +37,10 @@ public class SwerveDriveTeleOp extends OpMode {
             swerveDrive.resetEncoders();
         }
 
-        // Apply deadzones to eliminate stick drift turning the swerve pods
-        float strafeX = deadzone(gamepad1.left_stick_x);
-        float strafeY = deadzone(-gamepad1.left_stick_y); // In FTC, forward stick is negative
-        float rotate  = deadzone(gamepad1.right_stick_x);
+        // Pass raw stick values directly — SwerveDriveV2.move() applies its own deadzones
+        float strafeX = gamepad1.left_stick_x;
+        float strafeY = -gamepad1.left_stick_y; // In FTC, forward stick is negative
+        float rotate  = gamepad1.right_stick_x;
 
         swerveDrive.move(strafeX, strafeY, rotate);
 

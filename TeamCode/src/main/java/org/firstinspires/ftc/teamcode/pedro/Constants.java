@@ -13,12 +13,16 @@ import com.pedropathing.revhub.drivetrains.Swerve;
 import com.pedropathing.revhub.drivetrains.SwerveConfig;
 import com.pedropathing.revhub.localizers.PinpointConfig;
 import com.pedropathing.revhub.localizers.PinpointLocalizer;
+import com.qualcomm.hardware.digitalchickenlabs.OctoQuad;
 import com.qualcomm.hardware.gobilda.GoBildaPinpointDriver;
+import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 
 import org.firstinspires.ftc.robotcore.external.navigation.DistanceUnit;
+import org.firstinspires.ftc.teamcode.SwerveCode.SwerveDriveV2;
+import java.util.List;
 
 public class Constants {
 
@@ -103,24 +107,48 @@ public class Constants {
     public static ThroughBoreCoaxialPod yellow, red, blue, green;
 
     public static Follower create(HardwareMap h) {
-        yellow = new ThroughBoreCoaxialPod(h, yellowPod);
-        red = new ThroughBoreCoaxialPod(h, redPod);
-        blue = new ThroughBoreCoaxialPod(h, bluePod);
-        green = new ThroughBoreCoaxialPod(h, greenPod);
+        // Enable Lynx bulk caching for optimal Pedro follower loop frequencies
+        try {
+            List<LynxModule> allHubs = h.getAll(LynxModule.class);
+            for (LynxModule hub : allHubs) {
+                hub.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
+            }
+        } catch (Exception ignored) {}
+
+        OctoQuad octoquad = null;
+        if (SwerveDriveV2.USE_OCTOQUAD) {
+            try {
+                octoquad = h.get(OctoQuad.class, SwerveDriveV2.OCTOQUAD_NAME);
+                octoquad.setCachingMode(OctoQuad.CachingMode.AUTO);
+            } catch (Exception ignored) {
+                // OctoQuad not configured or found; fall back to Control Hub motor encoder ports
+                octoquad = null;
+            }
+        }
+
+        yellow = new ThroughBoreCoaxialPod(h, yellowPod, octoquad, SwerveDriveV2.YELLOW_ENCODER_CHANNEL);
+        red    = new ThroughBoreCoaxialPod(h, redPod,    octoquad, SwerveDriveV2.RED_ENCODER_CHANNEL);
+        blue   = new ThroughBoreCoaxialPod(h, bluePod,   octoquad, SwerveDriveV2.BLUE_ENCODER_CHANNEL);
+        green  = new ThroughBoreCoaxialPod(h, greenPod,  octoquad, SwerveDriveV2.GREEN_ENCODER_CHANNEL);
 
         return new Follower(new PinpointLocalizer(h, pinpointConfig), new Swerve(h, driveConfig,
                 blue, yellow, green, red), new Foresight(foresightConfig));
     }
 
+    /** True if autonomous pods are currently reading steering encoders from an OctoQuad. */
+    public static boolean isUsingOctoQuad() {
+        return yellow != null && yellow.isUsingOctoQuad();
+    }
+
     /**
-     * Re-zeros all four pod encoders. Call on start() so that any straightening
-     * of the wheels during init/init_loop is captured as the true zero position.
+     * Re-zeros all four pod encoders and enables servo PWM. Call on start() so that any
+     * straightening of the wheels during init/init_loop is captured as the true zero position.
      */
     public static void resetPodEncoders() {
-        if (yellow != null) yellow.resetEncoder();
-        if (red != null) red.resetEncoder();
-        if (blue != null) blue.resetEncoder();
-        if (green != null) green.resetEncoder();
+        if (yellow != null) { yellow.resetEncoder(); yellow.enablePwm(); }
+        if (red    != null) { red.resetEncoder();    red.enablePwm(); }
+        if (blue   != null) { blue.resetEncoder();   blue.enablePwm(); }
+        if (green  != null) { green.resetEncoder();  green.enablePwm(); }
     }
     public static ForesightConfig foresightConfig = new ForesightConfig(
             c -> {
