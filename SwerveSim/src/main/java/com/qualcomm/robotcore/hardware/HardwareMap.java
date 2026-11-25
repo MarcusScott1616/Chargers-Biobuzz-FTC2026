@@ -28,4 +28,13 @@ public class HardwareMap {
         }
         return (T) device;
     }
+
+    @SuppressWarnings("unchecked")
+    public <T> T tryGet(Class<? extends T> classOrInterface, String deviceName) {
+        try {
+            return get(classOrInterface, deviceName);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

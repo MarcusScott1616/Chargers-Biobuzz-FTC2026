@@ -21,19 +21,35 @@ public class HuskyTest extends OpMode {
 
     @Override
     public void init() {
-        stationary = TagCamera.init(hardwareMap, "stationaryHusky");
-        turret = TagCamera.init(hardwareMap, "turretHusky");
+        try {
+            stationary = TagCamera.init(hardwareMap, "stationaryHusky");
+        } catch (Exception e) {
+            telemetry.addLine("Notice: 'stationaryHusky' not found (only turretHusky active).");
+        }
+        try {
+            turret = TagCamera.init(hardwareMap, "turretHusky");
+        } catch (Exception e) {
+            telemetry.addLine("WARNING: 'turretHusky' not found!");
+        }
 
         telemetry.addLine("Husky Tag Test ready. Press PLAY.");
     }
 
     @Override
     public void loop() {
-        stationary.update();
-        turret.update();
+        if (stationary != null) {
+            stationary.update();
+            listCamera("STATIONARY", stationary);
+        } else {
+            telemetry.addLine("STATIONARY: Not connected");
+        }
 
-        listCamera("STATIONARY", stationary);
-        listCamera("TURRET", turret);
+        if (turret != null) {
+            turret.update();
+            listCamera("TURRET", turret);
+        } else {
+            telemetry.addLine("TURRET: Not connected");
+        }
         telemetry.update();
     }
 

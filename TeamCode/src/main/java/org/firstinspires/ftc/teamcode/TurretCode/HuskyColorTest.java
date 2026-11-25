@@ -24,9 +24,11 @@ public class HuskyColorTest extends OpMode {
     public static final String CAMERA_CONFIG_NAME = "groundHusky";
 
     // Color ID assignments (trained on the physical HuskyLens)
-    public static final int NECTAR_ID = 1;
-    public static final int POLLEN_ID = 2;
 
+    public int ALLIANCENECTAR_ID = 0;
+   public static final int BLUENECTAR_ID =2;
+    public static final int POLLEN_ID = 1;
+public static final int REDNECTAR_ID =3;
     private HuskyColorCamera colorCamera;
     private boolean cameraOk = false;
 
@@ -42,6 +44,14 @@ public class HuskyColorTest extends OpMode {
             telemetry.addLine("Check that '" + CAMERA_CONFIG_NAME + "' is plugged into an I2C port");
             telemetry.addLine("and configured in the Robot Controller configuration.");
         }
+
+        if(gamepad1.dpadUpWasPressed()){
+            ALLIANCENECTAR_ID = BLUENECTAR_ID;
+        }
+        if(gamepad1.dpadDownWasPressed()){
+            ALLIANCENECTAR_ID = REDNECTAR_ID;
+        }
+
         telemetry.update();
     }
 
@@ -59,9 +69,9 @@ public class HuskyColorTest extends OpMode {
         telemetry.addData("Total Blobs Seen", colorCamera.getTargetCount());
 
         // Prioritized target check
-        HuskyColorCamera.ColorTarget bestTarget = colorCamera.getPrioritizedTarget(NECTAR_ID, POLLEN_ID);
+        HuskyColorCamera.ColorTarget bestTarget = colorCamera.getPrioritizedTarget(ALLIANCENECTAR_ID, POLLEN_ID);
         if (bestTarget != null) {
-            String name = (bestTarget.id == NECTAR_ID) ? "NECTAR (PRIORITY)" : "POLLEN";
+            String name = (bestTarget.id == ALLIANCENECTAR_ID) ? "NECTAR (PRIORITY)" : "POLLEN";
             telemetry.addLine(String.format("--> LOCKED ON: %s <--", name));
             telemetry.addData("  Error tx", String.format("%+.1f° (%s)",
                     bestTarget.txDeg, bestTarget.txDeg > 0 ? "RIGHT" : "LEFT"));
@@ -74,10 +84,10 @@ public class HuskyColorTest extends OpMode {
 
         telemetry.addLine("--- ALL VISIBLE TARGETS ---");
         for (HuskyColorCamera.ColorTarget target : colorCamera.getAllTargets()) {
-            String label = (target.id == NECTAR_ID) ? "Nectar" :
+            String label = (target.id == ALLIANCENECTAR_ID) ? "Nectar" :
                            (target.id == POLLEN_ID) ? "Pollen" : "ID " + target.id;
             telemetry.addLine(String.format("  [%s] tx:%+.1f° ty:%+.1f° area:%d",
-                    label, target.txDeg, target.tyDeg, target.area));
+                    label, target.txDeg, target.   tyDeg, target.area));
         }
 
         telemetry.update();

@@ -22,7 +22,8 @@ import java.util.Map;
 public class ThroughBoreCoaxialPod implements SwervePod {
 
     public static final double ENCODER_TICKS_PER_REV = 8192.0;
-    public static double STEER_GEAR_RATIO = 1.0;
+    /** Gear ratio between pod rotation and encoder shaft (16T servo shaft to 48T pod = 3.0). */
+    public static double STEER_GEAR_RATIO = 48.0 / 16.0;
 
     private final String name;
     private final DcMotor turnEncoder;
@@ -164,9 +165,12 @@ public class ThroughBoreCoaxialPod implements SwervePod {
             turnServo.setPower(turnPower);
         }
 
-        if (Math.abs(drivePower - lastDrivePower) > motorCachingThreshold || (drivePower == 0 && lastDrivePower != 0)) {
-            lastDrivePower = drivePower;
-            driveMotor.setPower(drivePower);
+        // Cosine scaling: scale drive power by wheel alignment to prevent scrubbing/darting while steering
+        double scaledDrivePower = drivePower * Math.cos(errorRad);
+
+        if (Math.abs(scaledDrivePower - lastDrivePower) > motorCachingThreshold || (scaledDrivePower == 0 && lastDrivePower != 0)) {
+            lastDrivePower = scaledDrivePower;
+            driveMotor.setPower(scaledDrivePower);
         }
     }
 

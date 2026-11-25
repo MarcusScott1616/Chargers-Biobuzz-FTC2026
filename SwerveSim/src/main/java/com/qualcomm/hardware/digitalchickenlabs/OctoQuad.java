@@ -8,6 +8,7 @@ public interface OctoQuad {
     enum EncoderDirection { FORWARD, REVERSE }
     enum CachingMode { NONE, AUTO, MANUAL }
 
+    void setCachingMode(CachingMode mode);
     int readSinglePosition(int channel);
     int readSinglePosition_Caching(int channel);
     void resetSinglePosition(int channel);

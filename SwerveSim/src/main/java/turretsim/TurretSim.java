@@ -35,9 +35,8 @@ import java.util.function.DoubleConsumer;
  * TurretSim - try out shooter settings on a laptop before testing on the robot.
  *
  * The robot has two turrets, so the sim shows both at once:
- *   BACK turret  - the Shooter and Ball tabs (Nectar by default)
- *   FRONT turret - the Front turret tab (Pollen by default). It sits a set gap in front of the
- *                  back turret, toward the HIVE, and has its own ball, angle and flywheel speed.
+ *   FRONT turret - Nectar (6 in launch height, front of bot towards intake / HIVE)
+ *   BACK turret  - Pollen (8 in launch height, rear of bot, sitting a set gap behind the front)
  * The HIVE, air and wobble settings are shared by both turrets.
  *
  * Change any number in the tabs on the right and the dashed paths update right away.
@@ -74,13 +73,19 @@ public class TurretSim {
     }
 
     private TurretSim() {
-        // The front turret starts out shooting Pollen from 12 in high, 12 in closer to the HIVE
-        // (the robot's 60 in Pollen shot). The back turret's default launch height is 14 in.
-        frontSettings.ball = ShotPhysics.Ball.POLLEN;
-        frontSettings.ballMassGrams = ShotPhysics.Ball.POLLEN.defaultMassGrams;
-        frontSettings.launchHeightIn = 12;
-        frontSettings.launchAngleDeg = 47.5;
-        frontSettings.flywheelRpm = 3150;
+        // Back turret is POLLEN at 8 in height (rear of robot)
+        settings.ball = ShotPhysics.Ball.POLLEN;
+        settings.ballMassGrams = ShotPhysics.Ball.POLLEN.defaultMassGrams;
+        settings.launchHeightIn = 8;
+        settings.launchAngleDeg = 42.0;
+        settings.flywheelRpm = 3600;
+
+        // Front turret is NECTAR at 6 in height (front of robot, towards intake)
+        frontSettings.ball = ShotPhysics.Ball.NECTAR;
+        frontSettings.ballMassGrams = ShotPhysics.Ball.NECTAR.defaultMassGrams;
+        frontSettings.launchHeightIn = 6;
+        frontSettings.launchAngleDeg = 40.0;
+        frontSettings.flywheelRpm = 3400;
 
         JFrame frame = new JFrame("TurretSim - Chargers Biobuzz");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -115,9 +120,9 @@ public class TurretSim {
         top.add(slowMotion, BorderLayout.SOUTH);
 
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Back shooter", scroll(buildShooterTab()));
+        tabs.addTab("Front: Nectar (6\")", scroll(buildFrontTab()));
+        tabs.addTab("Back: Pollen (8\")", scroll(buildShooterTab()));
         tabs.addTab("Back ball", scroll(buildBallTab()));
-        tabs.addTab("Front turret", scroll(buildFrontTab()));
         tabs.addTab("HIVE", scroll(buildHiveTab()));
         tabs.addTab("Odds", scroll(buildOddsTab()));
 
@@ -130,7 +135,7 @@ public class TurretSim {
 
     private Form buildShooterTab() {
         Form f = new Form();
-        f.note("This is the BACK turret. The FRONT turret has its own tab.");
+        f.note("This is the BACK turret: Pollen (8 in launch height, rear of robot).");
         f.number("Distance to HIVE (in)", settings.distanceIn, 0, 300, 1, v -> settings.distanceIn = v);
         f.number("Launch angle (deg)  0 = flat, 90 = straight up", settings.launchAngleDeg, 0, 89, 0.5, v -> settings.launchAngleDeg = v);
         f.number("Launch height (in)", settings.launchHeightIn, 2, 40, 0.5, v -> settings.launchHeightIn = v);
@@ -157,9 +162,10 @@ public class TurretSim {
         return f;
     }
 
-    /** The front turret: its own ball and shot. Its distance to the HIVE is the back distance minus the gap. */
+    /** The front turret: Nectar (6 in launch height, front of robot towards intake). */
     private Form buildFrontTab() {
         Form f = new Form();
+        f.note("This is the FRONT turret: Nectar (6 in launch height, front of robot towards intake).");
         f.number("Gap: front turret in front of back (in)", frontGapIn, 0, 120, 0.5, v -> frontGapIn = v);
         f.note("The FRONT turret sits this far in front of the BACK turret, toward the HIVE. Its distance to the HIVE is the back distance minus this gap.");
         f.combo("Ball", ShotPhysics.Ball.values(), frontSettings.ball, v -> {

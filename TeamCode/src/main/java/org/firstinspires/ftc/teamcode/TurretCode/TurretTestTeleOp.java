@@ -26,9 +26,8 @@ import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
  *     -> Write the good kP/kD numbers into the Turret's fields so they stick.
  *
  * CAMERAS (HuskyLens, names must match the robot configuration):
- *   "stationaryHusky" - fixed camera. Gives distance to the HIVE for BOTH turrets.
- *   "turretHusky"     - camera on the NECTAR turret. Gives aim for NECTAR only.
- *   POLLEN has no aim camera, so it doesn't auto-aim.
+ *   "turretHusky" - camera on the NECTAR turret. Gives both aim and distance.
+ *   POLLEN shares distance from turretHusky and has no aim camera.
  */
 @TeleOp(name = "Turret Test", group = "Turret")
 public class TurretTestTeleOp extends OpMode {
@@ -42,16 +41,21 @@ public class TurretTestTeleOp extends OpMode {
     private final double[] stepSizes = {0.01, 0.001, 0.0001, 0.00001};
     private int stepIndex = 1;
 
-    private TagCamera stationary, turretCam;
+    private TagCamera turretCam;
     private String alliance = null;
+
+    // Edge-detection button states
+    private boolean lastX = false, lastY = false, lastB = false;
+    private boolean lastLB = false, lastRB = false;
+    private boolean lastDpadUp = false, lastDpadDown = false;
+    private boolean lastDpadLeft = false, lastDpadRight = false;
 
     @Override
     public void init() {
-        stationary = TagCamera.init(hardwareMap, "stationaryHusky");
-        turretCam  = TagCamera.init(hardwareMap, "turretHusky");
+        turretCam = TagCamera.init(hardwareMap, "turretHusky");
 
-        nectar.init(hardwareMap, stationary, turretCam);
-        pollen.init(hardwareMap, stationary, null);   // no aim camera for Pollen
+        nectar.init(hardwareMap, turretCam, turretCam);
+        pollen.init(hardwareMap, turretCam, null);   // shares distance, no aim camera for Pollen
 
         telemetry.addLine("Turrets ready. Choose alliance: X = BLUE, A = RED");
     }
@@ -77,15 +81,34 @@ public class TurretTestTeleOp extends OpMode {
 
     @Override
     public void loop() {
-        // ----- buttons -----
-        if (gamepad1.xWasPressed()) tuningNectar = !tuningNectar;
-        if (gamepad1.leftBumperWasPressed())  nectar.setFlywheelOn(!nectar.isFlywheelOn());
-        if (gamepad1.rightBumperWasPressed()) pollen.setFlywheelOn(!pollen.isFlywheelOn());
+        // ----- buttons with single-press edge detection -----
+        boolean xPressed = gamepad1.x && !lastX;
+        boolean yPressed = gamepad1.y && !lastY;
+        boolean bPressed = gamepad1.b && !lastB;
+        boolean lbPressed = gamepad1.left_bumper && !lastLB;
+        boolean rbPressed = gamepad1.right_bumper && !lastRB;
+        boolean dpadUp = gamepad1.dpad_up && !lastDpadUp;
+        boolean dpadDown = gamepad1.dpad_down && !lastDpadDown;
+        boolean dpadLeft = gamepad1.dpad_left && !lastDpadLeft;
+        boolean dpadRight = gamepad1.dpad_right && !lastDpadRight;
 
-        handleTuningButtons(tuningNectar ? nectar : pollen);
+        lastX = gamepad1.x;
+        lastY = gamepad1.y;
+        lastB = gamepad1.b;
+        lastLB = gamepad1.left_bumper;
+        lastRB = gamepad1.right_bumper;
+        lastDpadUp = gamepad1.dpad_up;
+        lastDpadDown = gamepad1.dpad_down;
+        lastDpadLeft = gamepad1.dpad_left;
+        lastDpadRight = gamepad1.dpad_right;
 
-        // ----- read the cameras ONCE, then run both turrets -----
-        stationary.update();
+        if (xPressed) tuningNectar = !tuningNectar;
+        if (lbPressed) nectar.setFlywheelOn(!nectar.isFlywheelOn());
+        if (rbPressed) pollen.setFlywheelOn(!pollen.isFlywheelOn());
+
+        handleTuningButtons(tuningNectar ? nectar : pollen, yPressed, bPressed, dpadUp, dpadDown, dpadLeft, dpadRight);
+
+        // ----- read the camera ONCE, then run both turrets -----
         turretCam.update();
         nectar.update(alliance);
         pollen.update(alliance);
@@ -121,31 +144,32 @@ public class TurretTestTeleOp extends OpMode {
         telemetry.addData("Distance (in)", "%.1f", t.getDistanceIn());
         telemetry.addData("Aim error (deg)", "%.1f   turret at %.0f deg", t.getAimErrorDeg(), t.getTurretDeg());
         telemetry.addData("RPM", "%.0f / %.0f target", t.getCurrentRpm(), t.getTargetRpm());
-        telemetry.addData("Hood (deg)", "%.1f", t.getTargetHoodDeg());
+        telemetry.addData("Hood (deg)", "%.1f (gear ratio: %.2f)", t.getTargetHoodDeg(), t.getHoodGearRatio());
         telemetry.addLine();
     }
 
     /**
-     * Handle the dpad buttons for whichever turret is selected.
-     * Works on any Turret instance — no more duplicate handlers.
+     * Handle the dpad and tuning buttons for whichever turret is selected.
+     * Works on any Turret instance with edge-triggered button states.
      */
-    private void handleTuningButtons(Turret t) {
-        if (gamepad1.yWasPressed()) t.setManualMode(!t.isManualMode());
+    private void handleTuningButtons(Turret t, boolean yPressed, boolean bPressed,
+                                     boolean dpadUp, boolean dpadDown, boolean dpadLeft, boolean dpadRight) {
+        if (yPressed) t.setManualMode(!t.isManualMode());
 
         if (t.isManualMode()) {
             double rpm = t.getManualRpm(), hood = t.getManualHoodDeg();
-            if (gamepad1.dpadUpWasPressed())    rpm += 50;
-            if (gamepad1.dpadDownWasPressed())  rpm -= 50;
-            if (gamepad1.dpadRightWasPressed()) hood += 1;
-            if (gamepad1.dpadLeftWasPressed())  hood -= 1;
+            if (dpadUp)    rpm += 50;
+            if (dpadDown)  rpm -= 50;
+            if (dpadRight) hood += 1;
+            if (dpadLeft)  hood -= 1;
             t.setManualShot(rpm, hood);
         } else {
-            if (gamepad1.bWasPressed()) stepIndex = (stepIndex + 1) % stepSizes.length;
+            if (bPressed) stepIndex = (stepIndex + 1) % stepSizes.length;
             double step = stepSizes[stepIndex];
-            if (gamepad1.dpadRightWasPressed()) t.aimKP += step;
-            if (gamepad1.dpadLeftWasPressed())  t.aimKP = Math.max(0, t.aimKP - step);
-            if (gamepad1.dpadUpWasPressed())    t.aimKD += step;
-            if (gamepad1.dpadDownWasPressed())  t.aimKD = Math.max(0, t.aimKD - step);
+            if (dpadRight) t.aimKP += step;
+            if (dpadLeft)  t.aimKP = Math.max(0, t.aimKP - step);
+            if (dpadUp)    t.aimKD += step;
+            if (dpadDown)  t.aimKD = Math.max(0, t.aimKD - step);
         }
     }
 

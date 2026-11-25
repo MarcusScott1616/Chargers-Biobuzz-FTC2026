@@ -18,7 +18,7 @@ import static com.pedropathing.api.Paths.curve;
 import static com.pedropathing.api.Paths.line;
 
 /*
- * AutonomousPractice - a STATE MACHINE autonomous.
+ * RedLogicAuto - a STATE MACHINE autonomous for the RED Alliance.
  *
  * How a state machine works:
  *   - The robot is always in exactly ONE state (the "state" variable).
@@ -28,29 +28,30 @@ import static com.pedropathing.api.Paths.line;
  * The kinds of state:
  *   DRIVE_*      - setState() tells the follower to follow a path. loop() waits until
  *                  follower.isBusy() is false (the path is finished), then moves on.
+ *   CHECK_*_HIVE - Verifies if the target hive is upright or tipped via AprilTag detection.
+ *                  If tipped, dynamically reroutes to the other side.
  *   AIM_*        - setState() turns the turret flywheels on. loop() waits until both turrets say
  *                  they're ready (at speed and aimed), or until AIM_MAX_SECONDS passes.
  *   SHOOT_*      - setState() asks TurretAutoLogic to feed balls. loop() waits until it's done.
  *   INTAKE_*     - setState() runs the intake motor. loop() waits, then moves on.
  *
  * Every loop() also updates the cameras and both turrets, so they keep aiming while the robot drives.
- *
  * Coordinates are in inches, heading in degrees (PoseFactory.degrees()).
- *
- * ALLIANCE: Set ALLIANCE below to "red" or "blue" to match the side you're starting on.
- *           The turrets will only aim at that alliance's tag clusters.
  */
-@Autonomous
-public class AutonomousPractice extends OpMode {
+@Autonomous(name = "Red Logic Auto", group = "Autonomous")
+public class RedLogicAuto extends OpMode {
 
-    // ---------- TUNE: alliance (change this to "blue" for the other side) ----------
     private static final String ALLIANCE = "red";
 
     // ---------- TUNE: timing and hardware values (measure these on the robot) ----------
-    private static final double AIM_MAX_SECONDS = 3.0;   // stop waiting for the turrets after this long, then shoot anyway
-    private static final int SHOTS_PER_VOLLEY = 1;       // balls fed per SHOOT state. Match this to the real volley.
-    private static final double INTAKE_SECONDS = 2.0;    // how long the intake runs at the flowers
+    private static final double AIM_MAX_SECONDS = 1.5;   // stop waiting for the turrets after this long, then shoot anyway
+    private static final int SHOTS_PER_VOLLEY = 4;       // balls fed per SHOOT state. Match this to the real volley.
+    private static final double INTAKE_SECONDS = 1.5;    // how long the intake runs at the flowers
+    private static final double GARDEN_INTAKE_SECONDS = 1.0; // dwell time to collect balls at the garden
     private static final double INTAKE_POWER = 1.0;      // intake motor power
+    private static final double MATCH_DURATION_SECONDS = 30.0;
+    private static final double PARK_TIME_THRESHOLD    = 7.0; // Park if less than 7s remaining in match
+    private static final double CHECK_HIVE_TIMEOUT     = 0.4; // Max seconds to wait for tag cluster before deciding tipped
 
     // ---------- every position the robot visits (exact points from RED_2.5Tip_FarPark.pp) ----------
     // Headings only matter where a path uses a linear heading. The others follow the path direction.
@@ -69,7 +70,9 @@ public class AutonomousPractice extends OpMode {
 
     // ---------- the paths between those positions (built once in init) ----------
     private Path toFaceGarden, toIntakeGarden, toSecondShot, toFlowerOne, toThirdShot,
-            toFlowerTwo, toFourthShot, toLineUpPark, toPark;
+            toFlowerTwo, toFourthShot, toLineUpPark, toPark,
+            toFourthShotDirect, toThirdShotDirect, toLineUpParkFromThird,
+            toFlowerTwoFromFourth;
 
     // ---------- hardware ----------
     private TagCamera stationaryCam, turretCam;             // stationary = distance, turret = aim
@@ -83,19 +86,33 @@ public class AutonomousPractice extends OpMode {
     private enum State {
         DRIVE_TO_FACE_GARDEN,
         DRIVE_TO_INTAKE_GARDEN,
+        INTAKE_GARDEN,
         DRIVE_TO_SECOND_SHOT,
         AIM_SECOND,
         SHOOT_SECOND,
         DRIVE_TO_FLOWER_ONE,
+        INTAKE_FLOWER_ONE,
         DRIVE_TO_THIRD_SHOT,
+        CHECK_THIRD_HIVE,
         AIM_THIRD,
         SHOOT_THIRD,
+        DRIVE_TO_FOURTH_SHOT_DIRECT,
+        CHECK_FOURTH_HIVE_ALT,
+        AIM_FOURTH_ALT,
+        SHOOT_FOURTH_ALT,
         DRIVE_TO_FLOWER_TWO,
+        DRIVE_TO_FLOWER_TWO_FROM_FOURTH,
         INTAKE_FLOWER_TWO,
         DRIVE_TO_FOURTH_SHOT,
+        CHECK_FOURTH_HIVE,
         AIM_FOURTH,
         SHOOT_FOURTH,
+        DRIVE_TO_THIRD_SHOT_DIRECT,
+        CHECK_THIRD_HIVE_FINAL,
+        AIM_THIRD_FINAL,
+        SHOOT_THIRD_FINAL,
         DRIVE_TO_LINE_UP_PARK,
+        DRIVE_TO_LINE_UP_PARK_FROM_THIRD,
         DRIVE_TO_PARK,
         DONE
     }
@@ -103,6 +120,8 @@ public class AutonomousPractice extends OpMode {
     private Follower follower;
     private State state = State.DRIVE_TO_FACE_GARDEN;
     private final ElapsedTime stateTimer = new ElapsedTime();
+    private final ElapsedTime matchTimer = new ElapsedTime();
+    private boolean hiveTwoTipped = false;
 
     @Override
     public void init() {
@@ -124,7 +143,20 @@ public class AutonomousPractice extends OpMode {
     }
 
     @Override
+    public void init_loop() {
+        follower.update();
+        telemetry.addData("Alliance", ALLIANCE.toUpperCase());
+        telemetry.addData("Pose", "X: %.1f, Y: %.1f, Heading: %.1f deg",
+                follower.pose().x(), follower.pose().y(), Math.toDegrees(follower.pose().heading()));
+        telemetry.addLine("Ready. Press PLAY.");
+        telemetry.update();
+    }
+
+    @Override
     public void start() {
+        matchTimer.reset();
+        Constants.resetPodEncoders(); // Zero pods to their straightened positions on PLAY
+        hiveTwoTipped = false;
         setState(State.DRIVE_TO_FACE_GARDEN); // start the first step
     }
 
@@ -136,6 +168,7 @@ public class AutonomousPractice extends OpMode {
         turretCam.update();
         nectar.update(ALLIANCE);
         pollen.update(ALLIANCE);
+        pollen.setTurretAngle(nectar.getTurretDeg());
         feeder.update(turretsReady());
 
         switch (state) {
@@ -144,28 +177,98 @@ public class AutonomousPractice extends OpMode {
                 if (!follower.isBusy()) setState(State.DRIVE_TO_INTAKE_GARDEN);
                 break;
             case DRIVE_TO_INTAKE_GARDEN:
-                if (!follower.isBusy()) setState(State.DRIVE_TO_SECOND_SHOT);
+                if (!follower.isBusy()) setState(State.INTAKE_GARDEN);
+                break;
+            case INTAKE_GARDEN:
+                if (stateTimer.seconds() >= GARDEN_INTAKE_SECONDS) {
+                    intakeMotor.setPower(0);
+                    setState(State.DRIVE_TO_SECOND_SHOT);
+                }
                 break;
             case DRIVE_TO_SECOND_SHOT:
                 if (!follower.isBusy()) setState(State.AIM_SECOND);
                 break;
             case DRIVE_TO_FLOWER_ONE:
-                if (!follower.isBusy()) setState(State.DRIVE_TO_THIRD_SHOT);
+                if (!follower.isBusy()) setState(State.INTAKE_FLOWER_ONE);
+                break;
+            case INTAKE_FLOWER_ONE:
+                if (stateTimer.seconds() >= INTAKE_SECONDS) {
+                    intakeMotor.setPower(0);
+                    setState(State.DRIVE_TO_THIRD_SHOT);
+                }
                 break;
             case DRIVE_TO_THIRD_SHOT:
-                if (!follower.isBusy()) setState(State.AIM_THIRD);
+                if (!follower.isBusy()) setState(State.CHECK_THIRD_HIVE);
+                break;
+            case DRIVE_TO_FOURTH_SHOT_DIRECT:
+                if (!follower.isBusy()) setState(State.CHECK_FOURTH_HIVE_ALT);
                 break;
             case DRIVE_TO_FLOWER_TWO:
+            case DRIVE_TO_FLOWER_TWO_FROM_FOURTH:
                 if (!follower.isBusy()) setState(State.INTAKE_FLOWER_TWO);
                 break;
             case DRIVE_TO_FOURTH_SHOT:
-                if (!follower.isBusy()) setState(State.AIM_FOURTH);
+                if (!follower.isBusy()) setState(State.CHECK_FOURTH_HIVE);
+                break;
+            case DRIVE_TO_THIRD_SHOT_DIRECT:
+                if (!follower.isBusy()) setState(State.CHECK_THIRD_HIVE_FINAL);
                 break;
             case DRIVE_TO_LINE_UP_PARK:
+            case DRIVE_TO_LINE_UP_PARK_FROM_THIRD:
                 if (!follower.isBusy()) setState(State.DRIVE_TO_PARK);
                 break;
             case DRIVE_TO_PARK:
                 if (!follower.isBusy()) setState(State.DONE);
+                break;
+
+            // ----- check if the hive is tipped before aiming / shooting -----
+            case CHECK_THIRD_HIVE:
+                if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                    setState(State.DRIVE_TO_LINE_UP_PARK_FROM_THIRD);
+                } else if (nectar.getClusterName() != null) {
+                    setState(State.AIM_THIRD);
+                } else if (stateTimer.seconds() >= CHECK_HIVE_TIMEOUT) {
+                    // Hive at Shoot Tip 2 is tipped -> take Flower 1's volley over to other side (Shoot Tip 3)
+                    hiveTwoTipped = true;
+                    setState(State.DRIVE_TO_FOURTH_SHOT_DIRECT);
+                }
+                break;
+
+            case CHECK_FOURTH_HIVE_ALT:
+                if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                    setState(State.DRIVE_TO_LINE_UP_PARK);
+                } else if (nectar.getClusterName() != null) {
+                    setState(State.AIM_FOURTH_ALT);
+                } else if (stateTimer.seconds() >= CHECK_HIVE_TIMEOUT) {
+                    // Both Hive 2 and Hive 3 are tipped -> park immediately
+                    setState(State.DRIVE_TO_LINE_UP_PARK);
+                }
+                break;
+
+            case CHECK_FOURTH_HIVE:
+                if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                    setState(State.DRIVE_TO_LINE_UP_PARK);
+                } else if (nectar.getClusterName() != null) {
+                    setState(State.AIM_FOURTH);
+                } else if (stateTimer.seconds() >= CHECK_HIVE_TIMEOUT) {
+                    // Hive at Shoot Tip 3 is tipped: if Hive 2 was already tipped or low time, park
+                    if (hiveTwoTipped || getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                        setState(State.DRIVE_TO_LINE_UP_PARK);
+                    } else {
+                        setState(State.DRIVE_TO_THIRD_SHOT_DIRECT);
+                    }
+                }
+                break;
+
+            case CHECK_THIRD_HIVE_FINAL:
+                if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                    setState(State.DRIVE_TO_LINE_UP_PARK_FROM_THIRD);
+                } else if (nectar.getClusterName() != null) {
+                    setState(State.AIM_THIRD_FINAL);
+                } else if (stateTimer.seconds() >= CHECK_HIVE_TIMEOUT) {
+                    // Both hives tipped -> park immediately
+                    setState(State.DRIVE_TO_LINE_UP_PARK_FROM_THIRD);
+                }
                 break;
 
             // ----- aim: wait for both turrets to be ready (or give up after a while) -----
@@ -175,26 +278,62 @@ public class AutonomousPractice extends OpMode {
             case AIM_THIRD:
                 if (turretsReady() || stateTimer.seconds() >= AIM_MAX_SECONDS) setState(State.SHOOT_THIRD);
                 break;
+            case AIM_FOURTH_ALT:
+                if (turretsReady() || stateTimer.seconds() >= AIM_MAX_SECONDS) setState(State.SHOOT_FOURTH_ALT);
+                break;
             case AIM_FOURTH:
                 if (turretsReady() || stateTimer.seconds() >= AIM_MAX_SECONDS) setState(State.SHOOT_FOURTH);
+                break;
+            case AIM_THIRD_FINAL:
+                if (turretsReady() || stateTimer.seconds() >= AIM_MAX_SECONDS) setState(State.SHOOT_THIRD_FINAL);
                 break;
 
             // ----- shoot: wait for TurretAutoLogic to finish feeding -----
             case SHOOT_SECOND:
                 if (!feeder.isBusy()) setState(State.DRIVE_TO_FLOWER_ONE);
                 break;
+
             case SHOOT_THIRD:
-                if (!feeder.isBusy()) setState(State.DRIVE_TO_FLOWER_TWO);
+                // Shot volley from Flower 1 at Shoot Tip 2 -> go to Flower 2
+                if (!feeder.isBusy()) {
+                    if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                        setState(State.DRIVE_TO_LINE_UP_PARK_FROM_THIRD);
+                    } else {
+                        setState(State.DRIVE_TO_FLOWER_TWO);
+                    }
+                }
                 break;
+
+            case SHOOT_FOURTH_ALT:
+                // Shot volley from Flower 1 at Shoot Tip 3 -> go to Flower 2
+                if (!feeder.isBusy()) {
+                    if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                        setState(State.DRIVE_TO_LINE_UP_PARK);
+                    } else {
+                        setState(State.DRIVE_TO_FLOWER_TWO_FROM_FOURTH);
+                    }
+                }
+                break;
+
             case SHOOT_FOURTH:
+                // Shot volley from Flower 2 at Shoot Tip 3 -> park!
                 if (!feeder.isBusy()) setState(State.DRIVE_TO_LINE_UP_PARK);
+                break;
+
+            case SHOOT_THIRD_FINAL:
+                // Shot volley from Flower 2 at Shoot Tip 2 -> park!
+                if (!feeder.isBusy()) setState(State.DRIVE_TO_LINE_UP_PARK_FROM_THIRD);
                 break;
 
             // ----- intake: run the intake for a set time -----
             case INTAKE_FLOWER_TWO:
                 if (stateTimer.seconds() >= INTAKE_SECONDS) {
                     intakeMotor.setPower(0);
-                    setState(State.DRIVE_TO_FOURTH_SHOT);
+                    if (getRemainingMatchSeconds() < PARK_TIME_THRESHOLD) {
+                        setState(State.DRIVE_TO_LINE_UP_PARK);
+                    } else {
+                        setState(State.DRIVE_TO_FOURTH_SHOT);
+                    }
                 }
                 break;
 
@@ -204,12 +343,13 @@ public class AutonomousPractice extends OpMode {
         }
 
         telemetry.addData("Alliance", ALLIANCE.toUpperCase());
+        telemetry.addData("Time Left", "%.1f s", getRemainingMatchSeconds());
         telemetry.addData("State", state);
         telemetry.addData("X", "%.1f", follower.pose().x());
         telemetry.addData("Y", "%.1f", follower.pose().y());
         telemetry.addData("Heading (deg)", "%.1f", Math.toDegrees(follower.pose().heading()));
         telemetry.addData("Following", follower.isBusy());
-        telemetry.addData("Nectar cluster", nectar.getClusterName() == null ? "none" : nectar.getClusterName());
+        telemetry.addData("Hive Cluster", nectar.getClusterName() == null ? "NONE (TIPPED)" : nectar.getClusterName());
         telemetry.addData("Nectar ready", nectar.readyToShoot());
         telemetry.addData("Pollen ready", pollen.readyToShoot());
         telemetry.addData("Nectar aim error (deg)", "%.1f", nectar.getAimErrorDeg());
@@ -222,6 +362,11 @@ public class AutonomousPractice extends OpMode {
         pollen.stop();
         feeder.stop();
         intakeMotor.setPower(0);
+    }
+
+    /** Seconds remaining in the 30-second autonomous period. */
+    private double getRemainingMatchSeconds() {
+        return Math.max(0, MATCH_DURATION_SECONDS - matchTimer.seconds());
     }
 
     /** True when both turrets are at speed and aimed, so it's safe to feed a ball. */
@@ -242,28 +387,79 @@ public class AutonomousPractice extends OpMode {
 
         switch (state) {
             case DRIVE_TO_FACE_GARDEN:     follower.follow(toFaceGarden);  break;
-            case DRIVE_TO_INTAKE_GARDEN:   follower.follow(toIntakeGarden); break;
-            case DRIVE_TO_SECOND_SHOT:     follower.follow(toSecondShot);   break;
-            case DRIVE_TO_FLOWER_ONE:      follower.follow(toFlowerOne);    break;
-            case DRIVE_TO_THIRD_SHOT:      follower.follow(toThirdShot);    break;
-            case DRIVE_TO_FLOWER_TWO:      follower.follow(toFlowerTwo);    break;
+            case DRIVE_TO_INTAKE_GARDEN:
+                intakeMotor.setPower(INTAKE_POWER);          // spin intake while driving into garden
+                follower.follow(toIntakeGarden);
+                break;
+            case INTAKE_GARDEN:
+                intakeMotor.setPower(INTAKE_POWER);          // keep running intake to collect
+                break;
+            case DRIVE_TO_SECOND_SHOT:
+                intakeMotor.setPower(0);
+                follower.follow(toSecondShot);
+                break;
+            case DRIVE_TO_FLOWER_ONE:
+                intakeMotor.setPower(0);
+                setFlywheels(false);
+                follower.follow(toFlowerOne);
+                break;
+            case INTAKE_FLOWER_ONE:
+                setFlywheels(false);
+                intakeMotor.setPower(INTAKE_POWER);          // run intake at flower one
+                break;
+            case DRIVE_TO_THIRD_SHOT:
+                intakeMotor.setPower(0);
+                follower.follow(toThirdShot);
+                break;
+            case DRIVE_TO_THIRD_SHOT_DIRECT:
+                setFlywheels(false);
+                follower.follow(toThirdShotDirect);
+                break;
+            case DRIVE_TO_FLOWER_TWO:
+                setFlywheels(false);
+                follower.follow(toFlowerTwo);
+                break;
+            case DRIVE_TO_FLOWER_TWO_FROM_FOURTH:
+                setFlywheels(false);
+                follower.follow(toFlowerTwoFromFourth);
+                break;
             case DRIVE_TO_FOURTH_SHOT:     follower.follow(toFourthShot);   break;
-            case DRIVE_TO_LINE_UP_PARK:    follower.follow(toLineUpPark);   break;
+            case DRIVE_TO_FOURTH_SHOT_DIRECT:
+                setFlywheels(false);
+                follower.follow(toFourthShotDirect);
+                break;
+            case DRIVE_TO_LINE_UP_PARK:
+                setFlywheels(false);
+                follower.follow(toLineUpPark);
+                break;
+            case DRIVE_TO_LINE_UP_PARK_FROM_THIRD:
+                setFlywheels(false);
+                follower.follow(toLineUpParkFromThird);
+                break;
             case DRIVE_TO_PARK:            follower.follow(toPark);         break;
 
+            case CHECK_THIRD_HIVE:
+            case CHECK_THIRD_HIVE_FINAL:
+            case CHECK_FOURTH_HIVE:
+            case CHECK_FOURTH_HIVE_ALT:
             case AIM_SECOND:
             case AIM_THIRD:
+            case AIM_THIRD_FINAL:
             case AIM_FOURTH:
+            case AIM_FOURTH_ALT:
                 setFlywheels(true);                          // spin up; the turrets aim themselves every loop
                 break;
 
             case SHOOT_SECOND:
             case SHOOT_THIRD:
+            case SHOOT_THIRD_FINAL:
             case SHOOT_FOURTH:
+            case SHOOT_FOURTH_ALT:
                 feeder.fireShots(SHOTS_PER_VOLLEY);          // TurretAutoLogic feeds the balls
                 break;
 
             case INTAKE_FLOWER_TWO:
+                setFlywheels(false);
                 intakeMotor.setPower(INTAKE_POWER);          // run the intake
                 break;
 
@@ -289,8 +485,9 @@ public class AutonomousPractice extends OpMode {
         // 2. Intake_Garden: straight. Heading follows the direction of travel.
         toIntakeGarden = line(faceGarden, intakeGarden).tangent();
 
-        // 3. Pass_through_middle_Shoot: CURVE. Heading follows the curve backwards (reverse tangent).
-        toSecondShot = bezier(intakeGarden, otherSideSecondVolley, 62.745, 7.237, 65.958, 75.892).reverseTangent();
+        // 3. Pass_through_middle_Shoot: CURVE. Heading maintains 180 across the middle so it seamlessly enters Flower One.
+        toSecondShot = bezier(intakeGarden, otherSideSecondVolley, 62.745, 7.237, 65.958, 75.892)
+                .linear(intakeGarden, poseFactory.of(57.280, 118.126, 180));
 
         // 4. Intake_Flower: CURVE with one control point. Heading turns 180 -> 90.
         toFlowerOne = bezier(otherSideSecondVolley, intakeFlowerOne, 47.838, 114.531)
@@ -299,12 +496,26 @@ public class AutonomousPractice extends OpMode {
         // 5. Shoot_Tip_2: straight. Heading turns 90 -> 270.
         toThirdShot = line(intakeFlowerOne, otherSideShootThirdVolley).linear(intakeFlowerOne, otherSideShootThirdVolley);
 
+        // Direct cross-field path from Shoot Tip 2 to Shoot Tip 3 (if Hive 2 is tipped)
+        toFourthShotDirect = bezier(otherSideShootThirdVolley, shootFourthVolley, 58.0, 66.0)
+                .linear(otherSideShootThirdVolley, shootFourthVolley);
+
+        // Direct return path from Shoot Tip 3 back to Shoot Tip 2 (if Hive 3 is tipped)
+        toThirdShotDirect = bezier(shootFourthVolley, otherSideShootThirdVolley, 58.0, 66.0)
+                .linear(shootFourthVolley, otherSideShootThirdVolley);
+
         // 6. Intake_Other_Flower: CURVE with two control points. Heading turns 270 -> 180.
         toFlowerTwo = bezier(otherSideShootThirdVolley, intakeFlowerTwo, 24.790, 96.850, 41.644, 43.769)
                 .linear(otherSideShootThirdVolley, intakeFlowerTwo);
 
+        // Path to Flower 2 if Flower 1's volley was shot at Shoot Tip 3
+        toFlowerTwoFromFourth = line(shootFourthVolley, intakeFlowerTwo).linear(shootFourthVolley, intakeFlowerTwo);
+
         // 7. Shoot+Tip_3: straight. Heading turns 180 -> 90.
         toFourthShot = line(intakeFlowerTwo, shootFourthVolley).linear(intakeFlowerTwo, shootFourthVolley);
+
+        // Direct park from Shoot Tip 2 (other side)
+        toLineUpParkFromThird = line(otherSideShootThirdVolley, goToPark).linear(otherSideShootThirdVolley, goToPark);
 
         // 8. Go_To_Park: straight. Heading turns 90 -> 180.
         toLineUpPark = line(shootFourthVolley, goToPark).linear(shootFourthVolley, goToPark);

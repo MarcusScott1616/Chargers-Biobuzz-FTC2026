@@ -112,14 +112,23 @@ public class Physics {
 
     /** Move the simulation forward by dt seconds. */
     public void step(double dt) {
-        // Turn servos based on CRServo power and update encoder ticks
+        // Turn servos based on CRServo power and update encoder ticks.
+        // The encoder is on the servo shaft (before the gear reduction), so ticks are
+        // written at the SERVO rate: ENCODER_TICKS_PER_REV ticks per servo revolution.
+        // SwerveDriveV2 accounts for gear ratio when converting ticks -> pod angle.
         double maxTurnSpeedRad = Math.toRadians(SERVO_SPEED_DEG_PER_SEC);
         for (Module m : modules) {
             double servoPower = m.servo.getPower();
             if (m.servo.getDirection() == CRServo.Direction.REVERSE) servoPower = -servoPower;
             m.currentAngleRad += servoPower * maxTurnSpeedRad * dt;
 
-            int ticks = (int) Math.round((m.currentAngleRad / (2.0 * Math.PI)) * 8192.0);
+            // Write encoder ticks accounting for the gear ratio so SwerveDriveV2 reads
+            // the correct pod angle. STEER_GEAR_RATIO pod revolutions per servo revolution
+            // means the encoder (on the servo shaft) sees STEER_GEAR_RATIO more ticks
+            // than a 1:1 setup for the same pod angle.
+            double gearRatio = SwerveDriveV2.STEER_GEAR_RATIO;
+            int ticks = (int) Math.round(
+                    (m.currentAngleRad / (2.0 * Math.PI)) * SwerveDriveV2.ENCODER_TICKS_PER_REV * gearRatio);
             m.encoder.setCurrentPosition(ticks);
 
             double speed = m.wheelPower() * MAX_WHEEL_SPEED;

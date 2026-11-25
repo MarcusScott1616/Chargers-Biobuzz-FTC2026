@@ -40,7 +40,7 @@ public class Constants {
                 c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(6, -6)); // Back-Right (+x, -y)
+                c.podOffset.set(Vector2D.cartesian(-8.75, -8.25)); // Back-Right (-x, -y in Pedro frame)
             }
     );
 
@@ -56,7 +56,7 @@ public class Constants {
                 c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(-6, 6)); // Front-Left (-x, +y)
+                c.podOffset.set(Vector2D.cartesian(8.75, 8.25)); // Front-Left (+x, +y in Pedro frame)
             }
     );
 
@@ -72,7 +72,7 @@ public class Constants {
                 c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(6, 6)); // Front-Right (+x, +y)
+                c.podOffset.set(Vector2D.cartesian(8.75, -8.25)); // Front-Right (+x, -y in Pedro frame)
             }
     );
 
@@ -88,7 +88,7 @@ public class Constants {
                 c.servoDirection.set(CRServo.Direction.REVERSE);
 
                 c.angleOffsetRad.set(Math.toRadians(0));
-                c.podOffset.set(Vector2D.cartesian(-6, -6)); // Back-Left (-x, -y)
+                c.podOffset.set(Vector2D.cartesian(-8.75, 8.25)); // Back-Left (-x, +y in Pedro frame)
             }
     );
 
@@ -100,14 +100,27 @@ public class Constants {
             }
     );
 
+    public static ThroughBoreCoaxialPod yellow, red, blue, green;
+
     public static Follower create(HardwareMap h) {
-        ThroughBoreCoaxialPod yellow = new ThroughBoreCoaxialPod(h, yellowPod);
-        ThroughBoreCoaxialPod red = new ThroughBoreCoaxialPod(h, redPod);
-        ThroughBoreCoaxialPod blue = new ThroughBoreCoaxialPod(h, bluePod);
-        ThroughBoreCoaxialPod green = new ThroughBoreCoaxialPod(h, greenPod);
+        yellow = new ThroughBoreCoaxialPod(h, yellowPod);
+        red = new ThroughBoreCoaxialPod(h, redPod);
+        blue = new ThroughBoreCoaxialPod(h, bluePod);
+        green = new ThroughBoreCoaxialPod(h, greenPod);
 
         return new Follower(new PinpointLocalizer(h, pinpointConfig), new Swerve(h, driveConfig,
                 blue, yellow, green, red), new Foresight(foresightConfig));
+    }
+
+    /**
+     * Re-zeros all four pod encoders. Call on start() so that any straightening
+     * of the wheels during init/init_loop is captured as the true zero position.
+     */
+    public static void resetPodEncoders() {
+        if (yellow != null) yellow.resetEncoder();
+        if (red != null) red.resetEncoder();
+        if (blue != null) blue.resetEncoder();
+        if (green != null) green.resetEncoder();
     }
     public static ForesightConfig foresightConfig = new ForesightConfig(
             c -> {

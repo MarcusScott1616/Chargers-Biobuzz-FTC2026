@@ -54,7 +54,17 @@ public class TagCamera {
      */
     public static TagCamera init(HardwareMap hardwareMap, String configName) {
         HuskyLens husky = hardwareMap.get(HuskyLens.class, configName);
-        if (!husky.knock()) {
+        boolean connected = false;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (husky.knock()) {
+                connected = true;
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ignored) {}
+        }
+        if (!connected) {
             throw new RuntimeException("HuskyLens '" + configName + "' not responding! Check the I2C cable.");
         }
         husky.selectAlgorithm(HuskyLens.Algorithm.TAG_RECOGNITION);
@@ -63,7 +73,8 @@ public class TagCamera {
 
     /** Read what the camera sees right now. Call once per loop. */
     public void update() {
-        blocks = husky.blocks();
+        HuskyLens.Block[] read = husky.blocks();
+        blocks = (read != null) ? read : new HuskyLens.Block[0];
     }
 
     /** Everything seen at the last update(). Used by HuskyTest to list the tag IDs. */

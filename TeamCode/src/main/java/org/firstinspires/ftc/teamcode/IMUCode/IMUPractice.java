@@ -13,9 +13,9 @@ public class IMUPractice {
         imu = hwMap.get(IMU.class, "imu");
 
         RevHubOrientationOnRobot RevOrientation = new RevHubOrientationOnRobot(
-                RevHubOrientationOnRobot.LogoFacingDirection.BACKWARD
+                RevHubOrientationOnRobot.LogoFacingDirection.UP
                 //unknown what our logo direction is going to be
-                , RevHubOrientationOnRobot.UsbFacingDirection.FORWARD
+                , RevHubOrientationOnRobot.UsbFacingDirection.BACKWARD
         );
 
         imu.initialize(new IMU.Parameters(RevOrientation));

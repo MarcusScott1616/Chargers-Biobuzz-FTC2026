@@ -65,12 +65,12 @@ public class Turret {
             {132, 26.0, 4900},   // 43% - this far out, drive closer!
     };
 
-    // ======================= CAMERA / DISTANCE (TUNE these) =======================
+    // ======================= CAMERA / DISTANCE =======================
 
-    // Measure on the robot. They turn the stationary camera's "ty" into a distance:
+    // Measured on the robot: turns the turret HuskyLens "ty" into a ground distance:
     //     distance = (tag height - camera height) / tan(camera tilt + ty)
-    public double cameraHeightIn = 12.0;       // floor to the center of the stationary HuskyLens lens
-    public double cameraTiltDeg  = 25.0;       // how far the stationary camera is tilted UP from flat
+    public double cameraHeightIn = 6.5;        // floor to the center of the turret-mounted HuskyLens lens
+    public double cameraTiltDeg  = 30.0;       // camera upward pitch angle from horizontal
     public double tagHeightIn    = 45.0;       // floor to the CENTER of the AprilTag on the HIVE
     public double distanceOffsetIn = 0.0;      // + = the shot distance is farther than camera-to-tag
 
@@ -80,7 +80,7 @@ public class Turret {
     // a little, then add kD to stop the wobble. (TurretTestTeleOp lets you tune with the gamepad.)
     public double aimKP = 0.2;
     public double aimKD = 0.02;
-    public double aimToleranceDeg = 1.0;       // "close enough" to shoot
+    public double aimToleranceDeg = 2.0;       // "close enough" to shoot
     public double aimOffsetDeg    = 0.0;       // TUNE: aim left/right of the tag if shots drift sideways
 
     // TUNE: servo centre, travel, direction, and limits.
@@ -100,14 +100,27 @@ public class Turret {
     public double flyKP = 0.0005;
     public double flyKI = 0.0;
     public double flyKD = 0.0;
-    public double rpmTolerance = 75;               // "at speed" if within this many RPM
+    public double rpmTolerance = 150;              // "at speed" if within this many RPM
     public double idleRpm      = 1500;             // TUNE: keep spinning between shots
 
-    // ======================= HOOD =======================
+    // ======================= HOOD & GEAR RATIO =======================
 
     // TUNE: hood angle = the angle the ball LEAVES at (0 = flat, 90 = straight up).
-    public double hoodMinDeg = 25, hoodServoAtMin = 0.10;
-    public double hoodMaxDeg = 65, hoodServoAtMax = 0.90;
+    public double hoodMinDeg = 25.0;           // min launch angle (soft limit)
+    public double hoodMaxDeg = 65.0;           // max launch angle (soft limit)
+
+    /**
+     * Gear ratio between the servo and the hood:
+     *   gearRatio = (hood gear teeth) / (servo gear teeth)
+     * For example, if the servo gear has 20T and the hood sector has 60T:
+     *   gearRatio = 60.0 / 20.0 = 3.0
+     * (the servo must turn 3 degrees to move the hood 1 degree).
+     */
+    public double hoodGearRatio      = 1.0;    // TUNE: set when you know the teeth count
+    public double hoodServoTotalDeg  = 300.0;  // total servo travel deg (0.0 to 1.0) — REV Smart Servo is 300 deg
+    public boolean hoodServoReversed = false;  // flip if increasing servo position lowers the hood
+    public double hoodBaseDeg        = 25.0;   // reference hood angle at hoodServoAtBase
+    public double hoodServoAtBase    = 0.10;   // servo position (0..1) when hood is at hoodBaseDeg
 
     // ======================= TAG TIMEOUT =======================
 
@@ -146,6 +159,15 @@ public class Turret {
     private double  distanceIn   = -1;       // -1 = never seen a tag
     private double  targetRpm = 0, currentRpm = 0, targetHoodDeg = 45;
     private double  flyIntegral = 0, lastFlyError = 0;
+
+    private PinpointOdometry odometry = null;
+    private boolean usingOdometryFallback = false;
+    private Turret master = null;
+
+    /** Slave this turret's aim to a master turret (e.g. Pollen follows Nectar). */
+    public void setMasterTurret(Turret master) {
+        this.master = master;
+    }
 
     // ======================= CONSTRUCTION =======================
 
@@ -188,7 +210,7 @@ public class Turret {
         setTurretAngle(turretCmdDeg);                   // start pointing straight ahead
 
         flywheel = hardwareMap.get(DcMotorEx.class, flywheelMotorName);
-        flywheel.setDirection(DcMotor.Direction.FORWARD);    // TUNE: flip if it spins backwards
+        flywheel.setDirection(DcMotor.Direction.REVERSE);
         flywheel.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
         flywheel.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);     // our own PIDF below
         flywheel.setZeroPowerBehavior(DcMotor.ZeroPowerBehavior.FLOAT);
@@ -233,7 +255,7 @@ public class Turret {
                 targetTagIds = cluster.tagIds;
             }
         }
-        if (targetTagIds == null) {
+        if (targetTagIds == null && distanceCam != null) {
             TagClusters.Result cluster = TagClusters.identify(distanceCam.getBlocks(), alliance);
             if (cluster.name != null) {
                 clusterName  = cluster.name;
@@ -242,12 +264,19 @@ public class Turret {
         }
 
         if (targetTagIds == null) {
-            // No cluster in view. If stale for too long, clear the old distance.
-            if (lastTagSeenTimer.seconds() > tagTimeoutSeconds) {
+            // No cluster in view. If odometry fallback is configured, calculate distance to target geometrically!
+            if (odometry != null) {
+                distanceIn = odometry.getDistanceToTarget();
+                usingOdometryFallback = true;
+                lastTagSeenTimer.reset();
+            } else if (lastTagSeenTimer.seconds() > tagTimeoutSeconds) {
                 distanceIn = -1;
+                usingOdometryFallback = false;
             }
             return;
         }
+
+        usingOdometryFallback = false;
 
         // Aim: from the camera on this turret. tx = how far left/right the tag is.
         if (aimCam != null) {
@@ -259,13 +288,15 @@ public class Turret {
             }
         }
 
-        // Distance: from the stationary camera. ty = how far up/down the tag is.
-        TagCamera.Tag far = distanceCam.findFirstTag(targetTagIds);
-        if (far != null) {
-            double angleToTag = Math.toRadians(cameraTiltDeg + far.tyDeg);
-            if (angleToTag > 0.01) {
-                distanceIn = (tagHeightIn - cameraHeightIn) / Math.tan(angleToTag) + distanceOffsetIn;
-                lastTagSeenTimer.reset();
+        // Distance: from the camera (turretHusky or stationary camera). ty = how far up/down the tag is.
+        if (distanceCam != null) {
+            TagCamera.Tag far = distanceCam.findFirstTag(targetTagIds);
+            if (far != null) {
+                double angleToTag = Math.toRadians(cameraTiltDeg + far.tyDeg);
+                if (angleToTag > 0.01) {
+                    distanceIn = (tagHeightIn - cameraHeightIn) / Math.tan(angleToTag) + distanceOffsetIn;
+                    lastTagSeenTimer.reset();
+                }
             }
         }
     }
@@ -273,7 +304,28 @@ public class Turret {
     // ---------- 2: turn the turret (servo, PD on tx, now framerate-independent) ----------
 
     private void aim(double dt) {
-        if (!tagVisible) {               // no tag or no aim camera: hold still.
+        if (master != null) {
+            // Slaved to master turret (e.g. Pollen following Nectar)
+            if (master.isTagVisible()) {
+                tagVisible = true;
+                aimErrorDeg = master.getAimErrorDeg();
+                setTurretAngle(master.getTurretDeg());
+                lastAimError = 0;
+                return;
+            } else if (odometry != null && usingOdometryFallback) {
+                tagVisible = false;
+                double odoAngle = odometry.getTurretAngleToTarget();
+                setTurretAngle(odoAngle);
+                lastAimError = 0;
+                return;
+            }
+        }
+
+        if (!tagVisible) {               // no tag or no aim camera: hold still or use odometry fallback
+            if (odometry != null && usingOdometryFallback) {
+                double odoAngle = odometry.getTurretAngleToTarget();
+                setTurretAngle(odoAngle);
+            }
             lastAimError = 0;
             return;
         }
@@ -290,8 +342,9 @@ public class Turret {
     }
 
     /** Turn a turret angle (deg, + = right) into a servo position. */
-    private void setTurretAngle(double deg) {
-        double units = deg / turretDegPerServoUnit;
+    public void setTurretAngle(double deg) {
+        turretCmdDeg = Range.clip(deg, -turretLimitDeg, turretLimitDeg);
+        double units = turretCmdDeg / turretDegPerServoUnit;
         turretServo.setPosition(
                 Range.clip(turretServoCenter + (turretServoReversed ? -units : units), 0, 1));
     }
@@ -343,10 +396,28 @@ public class Turret {
         return new double[]{last[1], last[2]};
     }
 
-    private void setHoodAngle(double deg) {
-        deg = Range.clip(deg, hoodMinDeg, hoodMaxDeg);
-        double f = (deg - hoodMinDeg) / (hoodMaxDeg - hoodMinDeg);
-        hoodServo.setPosition(hoodServoAtMin + f * (hoodServoAtMax - hoodServoAtMin));
+    public void setHoodAngle(double deg) {
+        targetHoodDeg = Range.clip(deg, hoodMinDeg, hoodMaxDeg);
+
+        // Degrees the hood moves relative to the reference base angle:
+        double deltaHoodDeg = targetHoodDeg - hoodBaseDeg;
+
+        // Degrees the servo shaft must rotate, accounting for gear ratio:
+        double deltaServoDeg = deltaHoodDeg * hoodGearRatio;
+
+        // Convert servo degrees to servo position units (0.0 to 1.0):
+        double deltaUnits = deltaServoDeg / hoodServoTotalDeg;
+
+        double servoPos = hoodServoAtBase + (hoodServoReversed ? -deltaUnits : deltaUnits);
+        hoodServo.setPosition(Range.clip(servoPos, 0.0, 1.0));
+    }
+
+    public void setHoodGearRatio(double ratio) {
+        this.hoodGearRatio = ratio;
+    }
+
+    public double getHoodGearRatio() {
+        return hoodGearRatio;
     }
 
     // ======================= PUBLIC API =======================
@@ -356,16 +427,64 @@ public class Turret {
      * A turret with no aim camera can't check its aim, so it only checks the speed.
      */
     public boolean readyToShoot() {
-        boolean aimed = manualMode || aimCam == null
-                || (tagVisible && Math.abs(aimErrorDeg) < aimToleranceDeg);
-        return flywheelOn && aimed && targetRpm > 0
+        boolean aimed;
+        if (manualMode) {
+            aimed = true;
+        } else if (master != null) {
+            if (master.isTagVisible()) {
+                aimed = Math.abs(master.getAimErrorDeg()) < aimToleranceDeg;
+            } else if (usingOdometryFallback && odometry != null) {
+                aimed = Math.abs(turretCmdDeg - odometry.getTurretAngleToTarget()) < aimToleranceDeg;
+            } else {
+                aimed = true;
+            }
+        } else {
+            aimed = (aimCam == null)
+                    || (tagVisible && Math.abs(aimErrorDeg) < aimToleranceDeg)
+                    || (usingOdometryFallback && odometry != null && Math.abs(turretCmdDeg - odometry.getTurretAngleToTarget()) < aimToleranceDeg);
+        }
+        boolean hasValidDistance = manualMode || distanceIn > 0;
+        return flywheelOn && aimed && hasValidDistance && targetRpm > 0
                 && Math.abs(targetRpm - currentRpm) < rpmTolerance;
+    }
+
+    /** Attach Pinpoint odometry computer to provide geometric fallback when tags are not visible. */
+    public void setOdometry(PinpointOdometry odometry) {
+        this.odometry = odometry;
+    }
+
+    public boolean isUsingOdometryFallback() {
+        return usingOdometryFallback;
     }
 
     /** True when the distance is farther than the last row in the shot table (low accuracy). */
     public boolean isTooFar() {
         return distanceIn > 0 && shotTable.length > 0
                 && distanceIn > shotTable[shotTable.length - 1][0];
+    }
+
+    // ======================= AUTO-SHOOTING CONSTRAINTS =======================
+    /** Maximum distance (inches) for reliable auto-shots into the hive basket (~8 ft). */
+    public static double MAX_AUTO_SHOOT_DISTANCE_IN = 96.0;
+
+    /** Minimum distance (inches) to prevent shooting inside or under the hive rim. */
+    public static double MIN_AUTO_SHOOT_DISTANCE_IN = 32.0;
+
+    /** Maximum turret rotation angle (degrees) relative to robot forward to prevent oblique/rim shots. */
+    public static double MAX_AUTO_TURRET_ANGLE_DEG  = 45.0;
+
+    /**
+     * Checks if the turret is in an ideal range and orientation to ensure
+     * shots accurately land and stay inside the hive basket.
+     */
+    public boolean inIdealShootingWindow() {
+        if (manualMode) return readyToShoot();
+        boolean distOk = distanceIn >= MIN_AUTO_SHOOT_DISTANCE_IN
+                      && distanceIn <= MAX_AUTO_SHOOT_DISTANCE_IN
+                      && !isTooFar();
+        boolean turretAngleOk = Math.abs(turretCmdDeg) <= MAX_AUTO_TURRET_ANGLE_DEG;
+        boolean aimOk = Math.abs(aimErrorDeg) <= aimToleranceDeg;
+        return distOk && turretAngleOk && aimOk && readyToShoot();
     }
 
     public void setFlywheelOn(boolean on) { flywheelOn = on; }

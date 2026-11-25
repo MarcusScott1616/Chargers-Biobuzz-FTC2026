@@ -42,3 +42,11 @@ tasks.register('runTurret', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'turretsim.TurretSim'
 }
+
+// Shot data table generator:  ./gradlew :SwerveSim:runTable
+tasks.register('runTable', JavaExec) {
+    group = 'application'
+    description = 'Prints the best angle+RPM table for Nectar (6 in) and Pollen (8 in) turrets.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'turretsim.TableGen'
+}

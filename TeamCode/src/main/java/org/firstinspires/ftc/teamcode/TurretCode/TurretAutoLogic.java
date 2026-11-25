@@ -17,8 +17,9 @@ import com.qualcomm.robotcore.util.ElapsedTime;
  */
 public class TurretAutoLogic {
 
-    // TUNE: how long to wait for the turrets before feeding anyway. Only used if they never report ready.
-    private static final double SPIN_UP_MAX_SECONDS = 2.0;
+    // Failsafe timeout to wait for the turrets before feeding anyway if they don't report ready.
+    // 1.2s gives the goBILDA 5203 motor sufficient time to spool up from a cold start (0 RPM) to target speed.
+    private static final double SPIN_UP_MAX_SECONDS = 1.2;
     private static final double INDEX_POWER = 0.5;     // index motor power while feeding a ball
     private static final double INDEX_SECONDS = 0.5;   // how long to feed one ball
     // TUNE: pause after each ball before the next one. Keep this short for faster volleys;
