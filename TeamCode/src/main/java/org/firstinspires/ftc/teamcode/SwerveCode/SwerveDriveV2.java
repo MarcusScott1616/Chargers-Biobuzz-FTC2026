@@ -39,17 +39,27 @@ public class SwerveDriveV2 {
     /** Stick inputs smaller than this are treated as zero. */
     public static double DEADZONE = 0.05;
 
-    /** PID Gains for Pod Steering. */
-    public static double kP = 0.45;
+    /** PID Gains for Pod Steering (tuned for real CRServos + Lynx bulk caching). */
+    public static double kP = 0.30;
     public static double kI = 0.0;
-    public static double kD = 0.005;
+    public static double kD = 0.015;
     public static double MAX_INTEGRAL = 0.2;
 
     /** Minimum servo power to overcome static friction (disabled = 0.0). */
     public static double kStatic = 0.0;
 
-    /** Angular tolerance (radians) within which steering is considered "on target" (~2 degrees). */
-    public static double STEER_TOLERANCE = Math.toRadians(2.0);
+    /** Angular tolerance (radians) within which steering is considered "on target" (~3 degrees). */
+    public static double STEER_TOLERANCE = Math.toRadians(3.0);
+
+    /** Hysteresis thresholds around 90 deg so pods don't chatter reversing drive & steer direction. */
+    private static final double FLIP_ENTER_RAD = Math.toRadians(95.0);
+    private static final double FLIP_EXIT_RAD  = Math.toRadians(85.0);
+
+    /** Minimum change in servo power before sending a new PWM write (0 is always sent immediately). */
+    private static final double SERVO_CACHE_THRESHOLD = 0.01;
+
+    /** Low-pass EMA factor for derivative filtering (rejects PWM frame / encoder stepping noise). */
+    private static final double DERIVATIVE_FILTER_ALPHA = 0.35;
 
     /** When true, CRServos are powered down (0 power) when joysticks are idle to prevent jitter and heating. */
     public static boolean RELAX_SERVOS_WHEN_IDLE = true;
@@ -137,10 +147,13 @@ public class SwerveDriveV2 {
 
         private double targetAngle = 0;
         private double lastError = 0;
+        private double filteredDerivative = 0;
         private double integral = 0;
         private long lastTimeNs = 0;
         private boolean lastFlipped = false;
+        private double currentErrorDeg = 0;
         private double currentServoPower = 0;
+        private double lastSentServoPower = Double.NaN;
         private double currentMotorPower = 0;
         private boolean pwmEnabled = true;
 
@@ -166,9 +179,11 @@ public class SwerveDriveV2 {
             zeroOffsetTicks = encoderSource.getPosition();
             integral = 0;
             lastError = 0;
+            filteredDerivative = 0;
             lastFlipped = false;
             lastTimeNs = 0;  // forces PID to use default dt on next call
             targetAngle = 0;
+            currentErrorDeg = 0;
         }
 
         /** Reads raw angle in radians [0, 2*PI) from the encoder ticks. */
@@ -201,12 +216,93 @@ public class SwerveDriveV2 {
             return Math.toDegrees(targetAngle);
         }
 
+        public double getErrorDeg() {
+            return currentErrorDeg;
+        }
+
         public double getServoPower() {
             return currentServoPower;
         }
 
         public double getMotorPower() {
             return currentMotorPower;
+        }
+
+        /**
+         * Shared closed-loop steering PID calculation with flip hysteresis and filtered derivative.
+         * Returns the clamped servo power in [-1.0, 1.0].
+         */
+        private double calculateSteerPower(double error, boolean flipped) {
+            currentErrorDeg = Math.toDegrees(error);
+
+            // Delta time calculation
+            long nowNs = System.nanoTime();
+            double dt = (lastTimeNs > 0) ? (nowNs - lastTimeNs) / 1e9 : 0.02;
+            lastTimeNs = nowNs;
+            if (dt <= 0 || dt > 0.5) {
+                dt = 0.02;
+                // Time gap too large — reset derivative and integral to avoid stale state
+                integral = 0;
+                filteredDerivative = 0;
+                lastError = error;
+                lastFlipped = flipped;
+            }
+
+            // If the flip state changed since last frame, the stored lastError is in a different
+            // frame of reference — reset it to avoid a massive derivative spike.
+            if (flipped != lastFlipped) {
+                lastError = error;
+                filteredDerivative = 0;
+            }
+            lastFlipped = flipped;
+
+            // PID calculation
+            integral += error * dt;
+            integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
+
+            double safeDt = Math.max(dt, 0.002);
+            double rawDerivative = (error - lastError) / safeDt;
+            filteredDerivative = DERIVATIVE_FILTER_ALPHA * rawDerivative
+                    + (1.0 - DERIVATIVE_FILTER_ALPHA) * filteredDerivative;
+            lastError = error;
+
+            // Prevent servo chatter: if error is within STEER_TOLERANCE, cut power and reset integral.
+            double turnPower;
+            if (Math.abs(error) <= STEER_TOLERANCE) {
+                turnPower = 0;
+                integral = 0;
+                filteredDerivative = 0;
+            } else {
+                turnPower = (kP * error) + (kI * integral) + (kD * filteredDerivative);
+                // Static friction feedforward: add a minimum kick in the direction of error
+                if (kStatic > 0) {
+                    turnPower += Math.signum(error) * kStatic;
+                }
+            }
+
+            if (SERVO_REVERSED) {
+                turnPower = -turnPower;
+            }
+
+            return Math.max(-1.0, Math.min(1.0, turnPower));
+        }
+
+        /** Writes servo power only when changed meaningfully (or transitioning to 0) to reduce bus traffic. */
+        private void sendServoPower(double power) {
+            enablePwm();
+            if (Double.isNaN(lastSentServoPower)
+                    || (power == 0 && lastSentServoPower != 0)
+                    || Math.abs(power - lastSentServoPower) >= SERVO_CACHE_THRESHOLD) {
+                servo.setPower(power);
+                lastSentServoPower = power;
+            }
+            currentServoPower = power;
+        }
+
+        /** Applies 90-degree flip optimization with hysteresis around 90 degrees. */
+        private boolean shouldFlip(double error) {
+            double threshold = lastFlipped ? FLIP_EXIT_RAD : FLIP_ENTER_RAD;
+            return Math.abs(error) > threshold;
         }
 
         /**
@@ -222,70 +318,23 @@ public class SwerveDriveV2 {
             // Shortest angular difference between target and current [-PI, PI]
             double error = normalizeAngle(commandedAngle - currentAngle);
 
-            // Swerve angle optimization: if error > 90 deg, flip motor direction and turn <= 90 deg.
-            // Track whether we flipped this frame vs last frame so the derivative stays meaningful
-            // across flip-state changes (the main cause of turn+strafe instability).
+            // Swerve angle optimization with hysteresis: if error > ~90 deg, flip motor & turn <= ~90 deg
             double drivePower = commandedPower;
-            boolean flipped = Math.abs(error) > Math.PI / 2.0;
+            boolean flipped = shouldFlip(error);
             if (flipped) {
                 error = error > 0 ? error - Math.PI : error + Math.PI;
                 drivePower = -drivePower;
             }
 
-            // Delta time calculation
-            long nowNs = System.nanoTime();
-            double dt = (lastTimeNs > 0) ? (nowNs - lastTimeNs) / 1e9 : 0.02;
-            lastTimeNs = nowNs;
-            if (dt <= 0 || dt > 0.5) {
-                dt = 0.02;
-                // Time gap too large — reset derivative and integral to avoid stale state
-                integral = 0;
-                lastError = error;
-                lastFlipped = flipped;
-            }
+            double turnPower = calculateSteerPower(error, flipped);
 
-            // If the flip state changed since last frame, the stored lastError is in a different
-            // frame of reference — reset it to avoid a massive derivative spike.
-            if (flipped != lastFlipped) {
-                lastError = error;
-            }
-            lastFlipped = flipped;
-
-            // PID calculation
-            integral += error * dt;
-            integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
-
-            double derivative = (error - lastError) / dt;
-            lastError = error;
-
-            // Prevent servo chatter: if error is within STEER_TOLERANCE, cut power and reset integral.
-            double turnPower;
-            if (Math.abs(error) <= STEER_TOLERANCE) {
-                turnPower = 0;
-                integral = 0;
-            } else {
-                turnPower = (kP * error) + (kI * integral) + (kD * derivative);
-                // Static friction feedforward: add a minimum kick in the direction of error
-                if (kStatic > 0) {
-                    turnPower += Math.signum(error) * kStatic;
-                }
-            }
-
-            if (SERVO_REVERSED) {
-                turnPower = -turnPower;
-            }
-
-            // Clamp servo power to [-1.0, 1.0]
-            turnPower = Math.max(-1.0, Math.min(1.0, turnPower));
-
-            // Cosine scaling: scale drive power by wheel alignment to prevent driving sideways while turning
-            double alignedDrivePower = drivePower * Math.cos(error);
+            // Cosine scaling: clamp >= 0 so 90-95 deg hysteresis never drives the motor backwards
+            double cosScale = Math.max(0.0, Math.cos(error));
+            double alignedDrivePower = drivePower * cosScale;
             double finalDrivePower = Math.abs(alignedDrivePower) < DEADZONE ? 0 : alignedDrivePower;
 
-            enablePwm();
-            servo.setPower(turnPower);
+            sendServoPower(turnPower);
             motor.setPower(finalDrivePower);
-            currentServoPower = turnPower;
             currentMotorPower = finalDrivePower;
         }
 
@@ -301,95 +350,68 @@ public class SwerveDriveV2 {
             // Shortest angular difference between target and current [-PI, PI]
             double error = normalizeAngle(commandedAngle - currentAngle);
 
-            // Swerve angle optimization: turn <= 90 deg.
-            // Reset lastError when flip state changes to avoid derivative spike.
-            boolean flipped = Math.abs(error) > Math.PI / 2.0;
+            boolean flipped = shouldFlip(error);
             if (flipped) {
                 error = error > 0 ? error - Math.PI : error + Math.PI;
             }
 
-            // Delta time calculation
-            long nowNs = System.nanoTime();
-            double dt = (lastTimeNs > 0) ? (nowNs - lastTimeNs) / 1e9 : 0.02;
-            lastTimeNs = nowNs;
-            if (dt <= 0 || dt > 0.5) {
-                dt = 0.02;
-                integral = 0;
-                lastError = error;
-                lastFlipped = flipped;
-            }
-
-            if (flipped != lastFlipped) {
-                lastError = error;
-            }
-            lastFlipped = flipped;
-
-            // PID calculation
-            integral += error * dt;
-            integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
-
-            double derivative = (error - lastError) / dt;
-            lastError = error;
-
-            // Prevent servo chatter: cut power and clear integral when within STEER_TOLERANCE
-            double turnPower;
-            if (Math.abs(error) <= STEER_TOLERANCE) {
-                turnPower = 0;
-                integral = 0;
-            } else {
-                turnPower = (kP * error) + (kI * integral) + (kD * derivative);
-                // Static friction feedforward: add a minimum kick in the direction of error
-                if (kStatic > 0) {
-                    turnPower += Math.signum(error) * kStatic;
-                }
-            }
-
-            if (SERVO_REVERSED) {
-                turnPower = -turnPower;
-            }
-
-            turnPower = Math.max(-1.0, Math.min(1.0, turnPower));
-            enablePwm();
-            servo.setPower(turnPower);
-            currentServoPower = turnPower;
+            double turnPower = calculateSteerPower(error, flipped);
+            sendServoPower(turnPower);
         }
 
         /** Directly set continuous rotation servo power (bypassing PID, for open-loop hardware testing). */
         public void setDirectServoPower(double power) {
             double clamped = Math.max(-1.0, Math.min(1.0, power));
-            enablePwm();
-            servo.setPower(clamped);
-            currentServoPower = clamped;
+            if (SERVO_REVERSED) {
+                clamped = -clamped;
+            }
+            sendServoPower(clamped);
         }
 
         /** Disables PWM output to this servo, completely de-energizing it so it can be moved freely by hand. */
         public void disablePwm() {
-            servo.setPower(0);
-            if (pwmEnabled && servo instanceof PwmControl) {
-                ((PwmControl) servo).setPwmDisable();
+            if (pwmEnabled) {
+                if (Double.isNaN(lastSentServoPower) || lastSentServoPower != 0) {
+                    servo.setPower(0);
+                }
+                if (servo instanceof PwmControl) {
+                    ((PwmControl) servo).setPwmDisable();
+                }
             }
             pwmEnabled = false;
+            lastSentServoPower = Double.NaN;
             currentServoPower = 0;
+            currentErrorDeg = 0;
             integral = 0;
             lastError = 0;
+            filteredDerivative = 0;
+            lastFlipped = false;
             lastTimeNs = 0;
         }
 
         /** Enables PWM output to this servo so it can receive power commands. */
         public void enablePwm() {
-            if (!pwmEnabled && servo instanceof PwmControl) {
-                ((PwmControl) servo).setPwmEnable();
+            if (!pwmEnabled) {
+                if (servo instanceof PwmControl) {
+                    ((PwmControl) servo).setPwmEnable();
+                }
+                pwmEnabled = true;
+                lastSentServoPower = Double.NaN;
             }
-            pwmEnabled = true;
         }
 
         public void stopSteer() {
-            servo.setPower(0);
+            if (Double.isNaN(lastSentServoPower) || lastSentServoPower != 0) {
+                servo.setPower(0);
+                lastSentServoPower = 0;
+            }
             integral = 0;
             lastError = 0;
+            filteredDerivative = 0;
             lastFlipped = false;
             lastTimeNs = 0;  // reset so next PID call doesn't get a stale time gap
             currentServoPower = 0;
+            currentErrorDeg = 0;
         }
 
         public void stopMotor() {
@@ -437,7 +459,7 @@ public class SwerveDriveV2 {
         } catch (Exception ignored) {
             imu = null;
         }
-        yawOffsetRad = 0.0;
+        resetYaw(); // Ensure starting heading is 0.0 even if Pinpoint holds an old angle
 
         double halfL = WheelbaseLength / 2.0, halfW = WheelbaseWidth / 2.0;
 
@@ -529,6 +551,7 @@ public class SwerveDriveV2 {
     /** Sets an explicit Pinpoint driver instance (e.g. from PinpointOdometry). */
     public void setPinpoint(GoBildaPinpointDriver pinpoint) {
         this.pinpoint = pinpoint;
+        resetYaw();
     }
 
     public GoBildaPinpointDriver getPinpoint() {
@@ -545,19 +568,35 @@ public class SwerveDriveV2 {
         return usingOctoQuad;
     }
 
+    /** Safely reads Pinpoint yaw in radians, returning NaN if Pinpoint is unavailable or calibrating. */
+    private double readPinpointYawSafe() {
+        if (pinpoint == null) return Double.NaN;
+        try {
+            pinpoint.update();
+            double raw = pinpoint.getHeading(AngleUnit.RADIANS);
+            return Double.isFinite(raw) ? raw : Double.NaN;
+        } catch (Exception ignored) {
+            return Double.NaN;
+        }
+    }
+
     /**
      * Returns the robot yaw heading in radians [-PI, PI], prioritizing goBILDA Pinpoint IMU.
      * Subtracts any driver reset offset so field-centric zero is preserved without wiping odometry.
      */
     public double getHeadingRad() {
-        double rawYaw = 0.0;
-        if (pinpoint != null) {
-            try {
-                pinpoint.update();
-            } catch (Exception ignored) {}
-            rawYaw = pinpoint.getHeading(AngleUnit.RADIANS);
-        } else if (imu != null) {
-            rawYaw = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+        double rawYaw = readPinpointYawSafe();
+        if (!Double.isFinite(rawYaw)) {
+            if (imu != null) {
+                try {
+                    rawYaw = imu.getRobotYawPitchRollAngles().getYaw(AngleUnit.RADIANS);
+                } catch (Exception ignored) {
+                    rawYaw = 0.0;
+                }
+            } else {
+                rawYaw = 0.0;
+            }
+            return normalizeAngle(rawYaw);
         }
         return normalizeAngle(rawYaw - yawOffsetRad);
     }
@@ -567,13 +606,15 @@ public class SwerveDriveV2 {
      * When using Pinpoint IMU, this zeroes the drive yaw WITHOUT wiping the robot's (X, Y) field position!
      */
     public void resetYaw() {
-        if (pinpoint != null) {
-            try {
-                pinpoint.update();
-            } catch (Exception ignored) {}
-            yawOffsetRad = pinpoint.getHeading(AngleUnit.RADIANS);
+        double pinpointYaw = readPinpointYawSafe();
+        if (Double.isFinite(pinpointYaw)) {
+            yawOffsetRad = pinpointYaw;
         } else if (imu != null) {
-            imu.resetYaw();
+            try {
+                imu.resetYaw();
+            } catch (Exception ignored) {}
+            yawOffsetRad = 0.0;
+        } else {
             yawOffsetRad = 0.0;
         }
     }
@@ -605,32 +646,50 @@ public class SwerveDriveV2 {
     public void move(float strafeX, float strafeY, float rotate) {
         if (modules == null) return;
 
-        // Individual axis deadzones to prevent stick drift on rotation or strafe from turning pods
         double cleanX = Math.abs(strafeX) < DEADZONE ? 0 : strafeX;
         double cleanY = Math.abs(strafeY) < DEADZONE ? 0 : strafeY;
         double cleanRotate = Math.abs(rotate) < DEADZONE ? 0 : rotate;
 
-        // No stick input: stop the motors and relax servos
         if (cleanX == 0 && cleanY == 0 && cleanRotate == 0) {
-            if (RELAX_SERVOS_WHEN_IDLE) {
-                for (Module m : modules) {
-                    m.stopMotor();
-                    m.disablePwm();
-                }
-            } else {
-                for (Module m : modules) m.stop();
-            }
+            stop();
             return;
         }
-
-        enablePwm();
 
         // Field-centric: turn the stick direction by the opposite of the robot's heading (via Pinpoint IMU).
         double yaw = getHeadingRad();
         double driveX = cleanX * Math.cos(-yaw) - cleanY * Math.sin(-yaw);
         double driveY = cleanX * Math.sin(-yaw) + cleanY * Math.cos(-yaw);
 
-        // Calculate push vector at each module
+        driveWithRobotVector(driveX, driveY, cleanRotate);
+    }
+
+    /**
+     * Drives the robot, robot-centric (pushing "forward" pushes in the direction the robot is facing).
+     * Used for visual tracking / chasing objects on the ground relative to the robot's intake.
+     *
+     * @param strafeX left (-1) to right (+1)
+     * @param strafeY back (-1) to forward (+1)
+     * @param rotate  counter-clockwise (-1) to clockwise (+1)
+     */
+    public void moveRobotCentric(float strafeX, float strafeY, float rotate) {
+        if (modules == null) return;
+
+        double cleanX = Math.abs(strafeX) < DEADZONE ? 0 : strafeX;
+        double cleanY = Math.abs(strafeY) < DEADZONE ? 0 : strafeY;
+        double cleanRotate = Math.abs(rotate) < DEADZONE ? 0 : rotate;
+
+        if (cleanX == 0 && cleanY == 0 && cleanRotate == 0) {
+            stop();
+            return;
+        }
+
+        driveWithRobotVector(cleanX, cleanY, cleanRotate);
+    }
+
+    /** Shared swerve kinematics solver in robot coordinates (+X right, +Y forward, +rotate CW). */
+    private void driveWithRobotVector(double driveX, double driveY, double cleanRotate) {
+        enablePwm();
+
         double halfDiagonal = Math.hypot(WheelbaseLength, WheelbaseWidth) / 2.0;
         double[] power = new double[modules.length];
         double[] angle = new double[modules.length];
@@ -651,61 +710,12 @@ public class SwerveDriveV2 {
         }
     }
 
-    /**
-     * Drives the robot, robot-centric (pushing "forward" pushes in the direction the robot is facing).
-     * Used for visual tracking / chasing objects on the ground relative to the robot's intake.
-     *
-     * @param strafeX left (-1) to right (+1)
-     * @param strafeY back (-1) to forward (+1)
-     * @param rotate  counter-clockwise (-1) to clockwise (+1)
-     */
-    public void moveRobotCentric(float strafeX, float strafeY, float rotate) {
-        if (modules == null) return;
-
-        double cleanX = Math.abs(strafeX) < DEADZONE ? 0 : strafeX;
-        double cleanY = Math.abs(strafeY) < DEADZONE ? 0 : strafeY;
-        double cleanRotate = Math.abs(rotate) < DEADZONE ? 0 : rotate;
-
-        if (cleanX == 0 && cleanY == 0 && cleanRotate == 0) {
-            if (RELAX_SERVOS_WHEN_IDLE) {
-                for (Module m : modules) {
-                    m.stopMotor();
-                    m.disablePwm();
-                }
-            } else {
-                for (Module m : modules) m.stop();
-            }
-            return;
-        }
-
-        enablePwm();
-
-        double driveX = cleanX;
-        double driveY = cleanY;
-
-        double halfDiagonal = Math.hypot(WheelbaseLength, WheelbaseWidth) / 2.0;
-        double[] power = new double[modules.length];
-        double[] angle = new double[modules.length];
-        double maxPower = 1.0;
-
-        for (int i = 0; i < modules.length; i++) {
-            Module m = modules[i];
-            double pushX = driveX + cleanRotate * (m.y / halfDiagonal);
-            double pushY = driveY - cleanRotate * (m.x / halfDiagonal);
-            power[i] = Math.hypot(pushX, pushY);
-            angle[i] = Math.atan2(pushX, pushY);
-            maxPower = Math.max(maxPower, power[i]);
-        }
-
-        for (int i = 0; i < modules.length; i++) {
-            modules[i].update(angle[i], power[i] / maxPower);
-        }
-    }
-
-    /** Normalizes an angle in radians to [-PI, PI]. */
+    /** Normalizes an angle in radians to [-PI, PI] safely in O(1) time. */
     public static double normalizeAngle(double radians) {
-        while (radians > Math.PI) radians -= 2.0 * Math.PI;
-        while (radians < -Math.PI) radians += 2.0 * Math.PI;
-        return radians;
+        if (!Double.isFinite(radians)) return 0.0;
+        double normalized = radians % (2.0 * Math.PI);
+        if (normalized > Math.PI) normalized -= 2.0 * Math.PI;
+        if (normalized < -Math.PI) normalized += 2.0 * Math.PI;
+        return normalized;
     }
 }

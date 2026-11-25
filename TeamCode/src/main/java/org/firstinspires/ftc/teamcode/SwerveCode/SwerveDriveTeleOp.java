@@ -23,6 +23,7 @@ public class SwerveDriveTeleOp extends OpMode {
     public void start() {
         swerveDrive.enablePwm();
         swerveDrive.resetEncoders();
+        swerveDrive.resetYaw();
     }
 
     @Override
@@ -48,13 +49,18 @@ public class SwerveDriveTeleOp extends OpMode {
                 Math.toDegrees(swerveDrive.getHeadingRad()),
                 swerveDrive.isUsingPinpoint() ? "Pinpoint" : "REV Hub");
         telemetry.addData("Encoder Src", swerveDrive.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports");
-        telemetry.addData("Strafe X", "%.2f", strafeX);
-        telemetry.addData("Strafe Y", "%.2f", strafeY);
-        telemetry.addData("Rotate", "%.2f", rotate);
+        telemetry.addData("PID / Rev", "kP:%.2f kD:%.3f Tol:%.1f° | SrvRev:%b",
+                SwerveDriveV2.kP, SwerveDriveV2.kD,
+                Math.toDegrees(SwerveDriveV2.STEER_TOLERANCE),
+                SwerveDriveV2.SERVO_REVERSED);
+        telemetry.addData("DriveCmd", "X:%+.2f Y:%+.2f Rot:%+.2f", strafeX, strafeY, rotate);
 
         if (swerveDrive.getModules() != null) {
             for (SwerveDriveV2.Module m : swerveDrive.getModules()) {
-                telemetry.addData(m.name.toUpperCase(), "%.1f°", m.getCurrentAngleDeg());
+                telemetry.addData(m.name.toUpperCase(),
+                        "Cur:%+5.1f° Tgt:%+5.1f° Err:%+5.1f° | Srv:%+.2f Mtr:%+.2f",
+                        m.getCurrentAngleDeg(), m.getTargetAngleDeg(), m.getErrorDeg(),
+                        m.getServoPower(), m.getMotorPower());
             }
         }
         telemetry.update();

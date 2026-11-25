@@ -35,6 +35,7 @@ public class SwerveDiagnostic extends OpMode {
     private SwerveDriveV2 swerve;
     private SwerveDriveV2.Module[] modules;
     private boolean lastB = false;
+    private boolean lastLeftStickBtn = false;
 
     @Override
     public void init() {
@@ -45,8 +46,8 @@ public class SwerveDiagnostic extends OpMode {
         telemetry.addLine("Swerve Diagnostic ready.");
         telemetry.addLine("D-pad: test drive motors (up=RED, right=BLUE, left=GREEN, down=YLW)");
         telemetry.addLine("Bumpers/Buttons: test steering PID (LB=0°, RB=90°, X=-90°, Y=180°)");
-        telemetry.addLine("B button: toggle SERVO_REVERSED live");
-        telemetry.addLine("Triggers: direct manual servo jog (RT=CW, LT=CCW)");
+        telemetry.addLine("B button: toggle SERVO_REVERSED | L3: toggle ENCODER_REVERSED");
+        telemetry.addLine("Triggers: manual servo jog (RT=CW/+, LT=CCW/-)");
         telemetry.addLine("A button: re-zero encoders (align pods forward first)");
         telemetry.update();
     }
@@ -58,6 +59,18 @@ public class SwerveDiagnostic extends OpMode {
         lastB = gamepad1.b;
         if (bPressed) {
             SwerveDriveV2.SERVO_REVERSED = !SwerveDriveV2.SERVO_REVERSED;
+        }
+
+        // Toggle ENCODER_REVERSED on Left Stick click (L3, edge-triggered)
+        boolean l3Pressed = gamepad1.left_stick_button && !lastLeftStickBtn;
+        lastLeftStickBtn = gamepad1.left_stick_button;
+        if (l3Pressed) {
+            SwerveDriveV2.ENCODER_REVERSED = !SwerveDriveV2.ENCODER_REVERSED;
+            if (modules != null) {
+                for (SwerveDriveV2.Module m : modules) {
+                    m.encoderReversed = SwerveDriveV2.ENCODER_REVERSED;
+                }
+            }
         }
 
         // Zero all encoders if A button is pressed
@@ -117,20 +130,24 @@ public class SwerveDiagnostic extends OpMode {
 
         // ==================== 3. TELEMETRY ====================
         telemetry.addLine("=== SYSTEM STATUS ===");
-        telemetry.addData("SERVO_REVERSED", "%b (Press B to toggle)", SwerveDriveV2.SERVO_REVERSED);
+        telemetry.addData("SERVO_REVERSED (B)", "%b | ENCODER_REVERSED (L3): %b",
+                SwerveDriveV2.SERVO_REVERSED, SwerveDriveV2.ENCODER_REVERSED);
+        telemetry.addData("PID", "kP:%.2f kD:%.3f Tol:%.1f°",
+                SwerveDriveV2.kP, SwerveDriveV2.kD, Math.toDegrees(SwerveDriveV2.STEER_TOLERANCE));
         telemetry.addData("Encoder Source", swerve.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports (Fallback)");
         telemetry.addData("Heading", "%.1f° (Source: %s)",
                 Math.toDegrees(swerve.getHeadingRad()),
                 swerve.isUsingPinpoint() ? "Pinpoint IMU" : "REV Hub IMU");
+        telemetry.addLine("Check: Hold RT -> Angle must INCREASE (+). Hold RB -> pods lock cleanly at +90°");
 
         telemetry.addLine("=== POD ENCODERS & SERVOS ===");
         if (modules != null) {
             for (SwerveDriveV2.Module m : modules) {
                 telemetry.addData(m.name.toUpperCase(),
-                        String.format("Ticks: %6d | Angle: %6.1f° (Raw: %6.1f°) | ServoPwr: %+.2f",
+                        String.format("Ticks: %6d | Angle: %+6.1f° | Err: %+5.1f° | Srv: %+.2f",
                                 m.getTicks(),
                                 m.getCurrentAngleDeg(),
-                                Math.toDegrees(m.getRawAngleRad()),
+                                m.getErrorDeg(),
                                 m.getServoPower()));
             }
         }

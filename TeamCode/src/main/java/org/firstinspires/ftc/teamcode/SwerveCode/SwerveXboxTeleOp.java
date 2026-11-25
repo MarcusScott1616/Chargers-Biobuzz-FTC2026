@@ -131,6 +131,7 @@ public class SwerveXboxTeleOp extends OpMode {
     public void start() {
         swerveDrive.enablePwm();
         swerveDrive.resetEncoders();
+        swerveDrive.resetYaw();
         fieldCentric = true;
         xBrakeActive = false;
         rotationScale = DEFAULT_ROTATION_SCALE;
@@ -279,15 +280,16 @@ public class SwerveXboxTeleOp extends OpMode {
 
         telemetry.addData("Heading", "%.1f°", Math.toDegrees(swerveDrive.getHeadingRad()));
         telemetry.addData("Rotation Sens", "%.0f%% (D-Pad ↑↓)", rotationScale * 100);
-        telemetry.addData("Steer kP", "%.2f (D-Pad ←→)", SwerveDriveV2.kP);
+        telemetry.addData("Steer PID", "kP:%.2f (D-Pad ←→) | kD:%.3f", SwerveDriveV2.kP, SwerveDriveV2.kD);
         telemetry.addData("Servo Relax", SwerveDriveV2.RELAX_SERVOS_WHEN_IDLE ? "ON" : "OFF");
 
         telemetry.addLine("── Pod Angles ──");
         if (swerveDrive.getModules() != null) {
             for (SwerveDriveV2.Module m : swerveDrive.getModules()) {
                 telemetry.addData(m.name.toUpperCase(),
-                        "%.1f° | Servo: %+.2f | Motor: %+.2f",
-                        m.getCurrentAngleDeg(), m.getServoPower(), m.getMotorPower());
+                        "Cur:%+5.1f° Tgt:%+5.1f° Err:%+5.1f° | Srv:%+.2f Mtr:%+.2f",
+                        m.getCurrentAngleDeg(), m.getTargetAngleDeg(), m.getErrorDeg(),
+                        m.getServoPower(), m.getMotorPower());
             }
         }
 
