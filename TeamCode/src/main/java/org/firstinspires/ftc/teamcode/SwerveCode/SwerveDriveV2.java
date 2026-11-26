@@ -42,7 +42,9 @@ public class SwerveDriveV2 {
     /** PID Gains for Pod Steering (tuned for real CRServos + Lynx bulk caching). */
     public static double kP = 0.28;
     public static double kI = 0.0;
-    public static double kD = 0.012;
+    public static double kD = 0.008;
+    /** Optional per-pod kD override for Red pod (< 0 uses global kD). */
+    public static double RED_kD = 0.024;
     public static double MAX_INTEGRAL = 0.2;
 
     /** Minimum servo power to overcome static friction (disabled = 0.0). */
@@ -239,6 +241,10 @@ public class SwerveDriveV2 {
             return currentMotorPower;
         }
 
+        private double getEffectiveKd() {
+            return ("red".equals(name) && RED_kD >= 0) ? RED_kD : kD;
+        }
+
         /**
          * Shared closed-loop steering PID calculation with flip hysteresis, Schmitt-trigger
          * settling deadband, and non-reversing derivative braking.
@@ -296,7 +302,7 @@ public class SwerveDriveV2 {
             integral += error * dt;
             integral = Math.max(-MAX_INTEGRAL, Math.min(MAX_INTEGRAL, integral));
 
-            double turnPower = (kP * error) + (kI * integral) + (kD * filteredDerivative);
+            double turnPower = (kP * error) + (kI * integral) + (getEffectiveKd() * filteredDerivative);
 
             // Prevent D-term from actively reversing past 0 before crossing target (brake to 0 instead)
             if (turnPower != 0 && Math.signum(turnPower) != Math.signum(error)) {

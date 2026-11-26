@@ -36,6 +36,8 @@ public class SwerveDiagnostic extends OpMode {
     private SwerveDriveV2.Module[] modules;
     private boolean lastB = false;
     private boolean lastLeftStickBtn = false;
+    private boolean lastRightStickBtn = false;
+    private boolean tuneRedKd = false;
     private boolean lastRSUp = false, lastRSDown = false, lastRSRight = false, lastRSLeft = false;
 
     @Override
@@ -92,6 +94,13 @@ public class SwerveDiagnostic extends OpMode {
             }
         }
 
+        // Toggle which kD Right Stick ←→ tunes (Global vs Red) on Right Stick click (R3)
+        boolean r3Pressed = gamepad1.right_stick_button && !lastRightStickBtn;
+        lastRightStickBtn = gamepad1.right_stick_button;
+        if (r3Pressed) {
+            tuneRedKd = !tuneRedKd;
+        }
+
         // Zero all encoders if A button is pressed
         if (gamepad1.a) {
             swerve.resetEncoders();
@@ -103,10 +112,18 @@ public class SwerveDiagnostic extends OpMode {
         boolean rsRight = gamepad1.right_stick_x >  0.8;
         boolean rsLeft  = gamepad1.right_stick_x < -0.8;
 
-        if (rsUp && !lastRSUp)       SwerveDriveV2.kP = Math.min(1.0,  Math.round((SwerveDriveV2.kP + 0.02) * 100.0) / 100.0);
-        if (rsDown && !lastRSDown)   SwerveDriveV2.kP = Math.max(0.02, Math.round((SwerveDriveV2.kP - 0.02) * 100.0) / 100.0);
-        if (rsRight && !lastRSRight) SwerveDriveV2.kD = Math.min(0.10, Math.round((SwerveDriveV2.kD + 0.002) * 1000.0) / 1000.0);
-        if (rsLeft && !lastRSLeft)   SwerveDriveV2.kD = Math.max(0.0,  Math.round((SwerveDriveV2.kD - 0.002) * 1000.0) / 1000.0);
+        if (rsUp && !lastRSUp)     SwerveDriveV2.kP = Math.min(1.0,  Math.round((SwerveDriveV2.kP + 0.02) * 100.0) / 100.0);
+        if (rsDown && !lastRSDown) SwerveDriveV2.kP = Math.max(0.02, Math.round((SwerveDriveV2.kP - 0.02) * 100.0) / 100.0);
+
+        double kdDelta = (rsRight && !lastRSRight) ? 0.002 : ((rsLeft && !lastRSLeft) ? -0.002 : 0.0);
+        if (kdDelta != 0.0) {
+            if (tuneRedKd) {
+                double base = SwerveDriveV2.RED_kD >= 0 ? SwerveDriveV2.RED_kD : SwerveDriveV2.kD;
+                SwerveDriveV2.RED_kD = Math.max(0.0, Math.min(0.10, Math.round((base + kdDelta) * 1000.0) / 1000.0));
+            } else {
+                SwerveDriveV2.kD = Math.max(0.0, Math.min(0.10, Math.round((SwerveDriveV2.kD + kdDelta) * 1000.0) / 1000.0));
+            }
+        }
 
         lastRSUp = rsUp;
         lastRSDown = rsDown;
@@ -167,8 +184,9 @@ public class SwerveDiagnostic extends OpMode {
         telemetry.addLine("=== SYSTEM STATUS ===");
         telemetry.addData("SERVO_REVERSED (B)", "%b | ENCODER_REVERSED (L3): %b",
                 SwerveDriveV2.SERVO_REVERSED, SwerveDriveV2.ENCODER_REVERSED);
-        telemetry.addData("PID (R-Stick ↑↓ kP, ←→ kD)", "kP:%.2f kD:%.3f Tol:%.1f°",
-                SwerveDriveV2.kP, SwerveDriveV2.kD, Math.toDegrees(SwerveDriveV2.STEER_TOLERANCE));
+        telemetry.addData("PID (R-Stick ↑↓ kP, ←→ kD | R3=" + (tuneRedKd ? "RED_kD" : "Global_kD") + ")",
+                "kP:%.2f kD:%.3f Red_kD:%.3f Tol:%.1f°",
+                SwerveDriveV2.kP, SwerveDriveV2.kD, SwerveDriveV2.RED_kD, Math.toDegrees(SwerveDriveV2.STEER_TOLERANCE));
         telemetry.addData("Encoder Source", swerve.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports (Fallback)");
         telemetry.addData("Heading", "%.1f° (Source: %s)",
                 Math.toDegrees(swerve.getHeadingRad()),

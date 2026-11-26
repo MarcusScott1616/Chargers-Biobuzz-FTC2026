@@ -54,7 +54,7 @@ public class Constants {
                 c.motorName.set("redMotor");
                 c.servoName.set("redServo");
                 c.servoEncoderName.set("redServoEncoder");
-                c.turnController.set(Controller.pid(0.3, 0, 0.005)
+                c.turnController.set(Controller.pid(0.3, 0, 0.012)
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(CRServo.Direction.REVERSE);
