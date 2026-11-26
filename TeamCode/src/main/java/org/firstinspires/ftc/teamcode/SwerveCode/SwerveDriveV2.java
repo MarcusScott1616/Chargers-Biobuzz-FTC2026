@@ -40,9 +40,9 @@ public class SwerveDriveV2 {
     public static double DEADZONE = 0.05;
 
     /** PID Gains for Pod Steering (tuned for real CRServos + Lynx bulk caching). */
-    public static double kP = 0.14;
+    public static double kP = 0.28;
     public static double kI = 0.0;
-    public static double kD = 0.020;
+    public static double kD = 0.012;
     public static double MAX_INTEGRAL = 0.2;
 
     /** Minimum servo power to overcome static friction (disabled = 0.0). */
@@ -83,7 +83,7 @@ public class SwerveDriveV2 {
     public static boolean ENCODER_REVERSED = false;
 
     /** Set to true if turning power needs to be flipped for all steering servos. */
-    public static boolean SERVO_REVERSED = false;
+    public static boolean SERVO_REVERSED = true;
 
     // ==================== OctoQuad Configuration ====================
     // Set USE_OCTOQUAD to true once you have the OctoQuad wired and configured.

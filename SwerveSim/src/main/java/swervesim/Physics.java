@@ -30,6 +30,12 @@ public class Physics {
     /** Legacy display range for simulator UI. */
     public static double SERVO_RANGE_DEG = 360;
 
+    /**
+     * Real pod gearing turns the pod opposite to raw positive servo shaft power (+power -> -angle),
+     * matching SwerveDriveV2.SERVO_REVERSED = true and Constants.java CRServo.Direction.REVERSE.
+     */
+    public static final boolean PHYSICAL_STEER_INVERTED = true;
+
     /** How fast a wheel drives at motor power 1.0, in inches per second. */
     public static final double MAX_WHEEL_SPEED = 60;
 
@@ -120,6 +126,7 @@ public class Physics {
         for (Module m : modules) {
             double servoPower = m.servo.getPower();
             if (m.servo.getDirection() == CRServo.Direction.REVERSE) servoPower = -servoPower;
+            if (PHYSICAL_STEER_INVERTED) servoPower = -servoPower;
             m.currentAngleRad += servoPower * maxTurnSpeedRad * dt;
 
             // Write encoder ticks accounting for the gear ratio so SwerveDriveV2 reads
