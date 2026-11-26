@@ -87,7 +87,7 @@ public class SwerveDiagnostic extends OpMode {
             SwerveDriveV2.ENCODER_REVERSED = !SwerveDriveV2.ENCODER_REVERSED;
             if (modules != null) {
                 for (SwerveDriveV2.Module m : modules) {
-                    m.encoderReversed = SwerveDriveV2.ENCODER_REVERSED;
+                    m.encoderReversed = !m.encoderReversed;
                 }
             }
         }

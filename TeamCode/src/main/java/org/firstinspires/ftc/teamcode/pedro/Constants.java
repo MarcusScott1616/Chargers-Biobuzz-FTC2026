@@ -58,6 +58,7 @@ public class Constants {
                         .plus(Controller.proportionalFeedforward(0)));
                 c.driveDirection.set(DcMotorSimple.Direction.FORWARD);
                 c.servoDirection.set(CRServo.Direction.REVERSE);
+                c.encoderReversed.set(true); // Red ticks decrease when spun CW (increases CCW)
 
                 c.angleOffsetRad.set(Math.toRadians(0));
                 c.podOffset.set(Vector2D.cartesian(8.75, 8.25)); // Front-Left (+x, +y in Pedro frame)

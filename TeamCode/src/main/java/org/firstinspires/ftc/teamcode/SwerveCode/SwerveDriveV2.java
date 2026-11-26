@@ -79,8 +79,14 @@ public class SwerveDriveV2 {
     public static double GREEN_OFFSET_DEG = 0.0;
     public static double YELLOW_OFFSET_DEG = 0.0;
 
-    /** Set to true if an encoder's ticks decrease when the pod turns to the right (+ angle). */
+    /** Global override to invert ALL encoders (XORed with per-pod flags below). */
     public static boolean ENCODER_REVERSED = false;
+
+    /** Per-pod encoder direction: set true if ticks DECREASE when spun clockwise (+ angle). */
+    public static boolean RED_ENCODER_REVERSED    = true;
+    public static boolean BLUE_ENCODER_REVERSED   = false;
+    public static boolean GREEN_ENCODER_REVERSED  = false;
+    public static boolean YELLOW_ENCODER_REVERSED = false;
 
     /** Set to true if turning power needs to be flipped for all steering servos. */
     public static boolean SERVO_REVERSED = true;
@@ -517,22 +523,22 @@ public class SwerveDriveV2 {
                         hMap.get(CRServo.class, "redServo"),
                         hMap.get(DcMotor.class, "redMotor"),
                         redEnc,
-                        -halfW,  halfL, Math.toRadians(RED_OFFSET_DEG), ENCODER_REVERSED),
+                        -halfW,  halfL, Math.toRadians(RED_OFFSET_DEG),    ENCODER_REVERSED ^ RED_ENCODER_REVERSED),
                 new Module("blue",
                         hMap.get(CRServo.class, "blueServo"),
                         hMap.get(DcMotor.class, "blueMotor"),
                         blueEnc,
-                         halfW,  halfL, Math.toRadians(BLUE_OFFSET_DEG), ENCODER_REVERSED),
+                         halfW,  halfL, Math.toRadians(BLUE_OFFSET_DEG),   ENCODER_REVERSED ^ BLUE_ENCODER_REVERSED),
                 new Module("green",
                         hMap.get(CRServo.class, "greenServo"),
                         hMap.get(DcMotor.class, "greenMotor"),
                         greenEnc,
-                        -halfW, -halfL, Math.toRadians(GREEN_OFFSET_DEG), ENCODER_REVERSED),
+                        -halfW, -halfL, Math.toRadians(GREEN_OFFSET_DEG),  ENCODER_REVERSED ^ GREEN_ENCODER_REVERSED),
                 new Module("yellow",
                         hMap.get(CRServo.class, "yellowServo"),
                         hMap.get(DcMotor.class, "yellowMotor"),
                         yellowEnc,
-                         halfW, -halfL, Math.toRadians(YELLOW_OFFSET_DEG), ENCODER_REVERSED),
+                         halfW, -halfL, Math.toRadians(YELLOW_OFFSET_DEG), ENCODER_REVERSED ^ YELLOW_ENCODER_REVERSED),
         };
 
         for (Module m : modules) {

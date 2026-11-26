@@ -136,6 +136,9 @@ public class Physics {
             double gearRatio = SwerveDriveV2.STEER_GEAR_RATIO;
             int ticks = (int) Math.round(
                     (m.currentAngleRad / (2.0 * Math.PI)) * SwerveDriveV2.ENCODER_TICKS_PER_REV * gearRatio);
+            if ("red".equals(m.name)) {
+                ticks = -ticks; // Match real robot: Red encoder ticks decrease when spun CW
+            }
             m.encoder.setCurrentPosition(ticks);
 
             double speed = m.wheelPower() * MAX_WHEEL_SPEED;
