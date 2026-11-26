@@ -36,6 +36,7 @@ public class SwerveDiagnostic extends OpMode {
     private SwerveDriveV2.Module[] modules;
     private boolean lastB = false;
     private boolean lastLeftStickBtn = false;
+    private boolean lastRSUp = false, lastRSDown = false, lastRSRight = false, lastRSLeft = false;
 
     @Override
     public void init() {
@@ -96,6 +97,22 @@ public class SwerveDiagnostic extends OpMode {
             swerve.resetEncoders();
         }
 
+        // Live PID tuning with Right Stick flicks (>80% threshold prevents accidental bumps)
+        boolean rsUp    = gamepad1.right_stick_y < -0.8;
+        boolean rsDown  = gamepad1.right_stick_y >  0.8;
+        boolean rsRight = gamepad1.right_stick_x >  0.8;
+        boolean rsLeft  = gamepad1.right_stick_x < -0.8;
+
+        if (rsUp && !lastRSUp)       SwerveDriveV2.kP = Math.min(1.0,  Math.round((SwerveDriveV2.kP + 0.02) * 100.0) / 100.0);
+        if (rsDown && !lastRSDown)   SwerveDriveV2.kP = Math.max(0.02, Math.round((SwerveDriveV2.kP - 0.02) * 100.0) / 100.0);
+        if (rsRight && !lastRSRight) SwerveDriveV2.kD = Math.min(0.10, Math.round((SwerveDriveV2.kD + 0.002) * 1000.0) / 1000.0);
+        if (rsLeft && !lastRSLeft)   SwerveDriveV2.kD = Math.max(0.0,  Math.round((SwerveDriveV2.kD - 0.002) * 1000.0) / 1000.0);
+
+        lastRSUp = rsUp;
+        lastRSDown = rsDown;
+        lastRSRight = rsRight;
+        lastRSLeft = rsLeft;
+
         // ==================== 1. DRIVE MOTORS MANUAL TEST ====================
         // Control each module's drive motor directly without interference
         if (modules != null && modules.length >= 4) {
@@ -150,7 +167,7 @@ public class SwerveDiagnostic extends OpMode {
         telemetry.addLine("=== SYSTEM STATUS ===");
         telemetry.addData("SERVO_REVERSED (B)", "%b | ENCODER_REVERSED (L3): %b",
                 SwerveDriveV2.SERVO_REVERSED, SwerveDriveV2.ENCODER_REVERSED);
-        telemetry.addData("PID", "kP:%.2f kD:%.3f Tol:%.1f°",
+        telemetry.addData("PID (R-Stick ↑↓ kP, ←→ kD)", "kP:%.2f kD:%.3f Tol:%.1f°",
                 SwerveDriveV2.kP, SwerveDriveV2.kD, Math.toDegrees(SwerveDriveV2.STEER_TOLERANCE));
         telemetry.addData("Encoder Source", swerve.isUsingOctoQuad() ? "OctoQuad (I2C)" : "Motor Ports (Fallback)");
         telemetry.addData("Heading", "%.1f° (Source: %s)",
